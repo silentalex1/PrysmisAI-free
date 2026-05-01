@@ -285,6 +285,56 @@ app.get('/api/studio/status', function(req, res) {
   return res.json({ connected: session.pluginConnected, username: session.username });
 });
 
+app.post('/api/studio/animate', async function(req, res) {
+  const { token, prompt } = req.body;
+  if (!token || !prompt) return res.status(400).json({ success: false, error: 'Missing token or prompt' });
+
+  const session = studioSessions.get(token);
+  if (!session) return res.status(401).json({ success: false, error: 'Invalid or expired token' });
+
+  const animSystemPrompt = [
+    'You are an expert Roblox Luau animation engineer. You write ONLY pure Luau code — no markdown, no backticks, no code fences, no comments, no explanations.',
+    'Your code uses TweenService for all animations. It must be completely self-contained and executable with loadstring().',
+    'Rules:',
+    '1. Use game:GetService("TweenService") and game:GetService("RunService") as needed.',
+    '2. Find target instances using game.Workspace:FindFirstChild() or :FindFirstChildWhichIsA().',
+    '3. If no specific instance name is given, animate any BasePart found in Workspace.',
+    '4. Use TweenInfo.new() with appropriate Time, EasingStyle, EasingDirection, RepeatCount, Reverses, DelayTime.',
+    '5. For looping animations use RepeatCount = -1 and Reverses = true.',
+    '6. Chain multiple tweens using Tween.Completed:Connect() for sequential animations.',
+    '7. Always play animations immediately — call :Play() on every tween.',
+    '8. Wrap everything in a coroutine or spawn() so it does not block.',
+    '9. Return ONLY raw Luau code. Absolutely no markdown. No backticks. No code block syntax.',
+    '10. The code must be smooth, polished, and production-quality.',
+  ].join('\n');
+
+  try {
+    const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
+    const model = await getModel();
+
+    const messages = [
+      new SystemMessage(animSystemPrompt),
+      new HumanMessage('Create a Roblox animation for this request: ' + prompt),
+    ];
+
+    let fullCode = '';
+    const stream = await model.stream(messages);
+    for await (const chunk of stream) {
+      const text = typeof chunk.content === 'string' ? chunk.content : '';
+      fullCode += text;
+    }
+
+    fullCode = fullCode
+      .replace(/```(?:lua|luau)?\n?/gi, '')
+      .replace(/```/g, '')
+      .trim();
+
+    return res.json({ success: true, code: fullCode });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message || 'AI generation error' });
+  }
+});
+
 app.listen(PORT, function() {
   console.log('PrysmisAI running on http://localhost:' + PORT);
 });
