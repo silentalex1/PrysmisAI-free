@@ -1070,5 +1070,42 @@
     return '<p>' + t + '</p>';
   }
 
+  var pendingChangeCode = null;
+
+  window.openShareScreen = function() {
+    var token = getStoredToken();
+    if (!token) {
+      alert('Generate a Studio token first in Settings > Studio.');
+      return;
+    }
+    var url = '/screenshare?token=' + encodeURIComponent(token);
+    window.open(url, 'PrysmisAI_ScreenShare', 'width=1100,height=720,toolbar=no,menubar=no,scrollbars=no');
+  };
+
+  window.acceptChange = function() {
+    if (!pendingChangeCode || !studioToken) return;
+    fetch('/api/studio/command', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: studioToken, command: { type: 'execute', code: pendingChangeCode } })
+    }).then(function() {
+      pendingChangeCode = null;
+      var bar = document.getElementById('change-bar');
+      if (bar) bar.style.display = 'none';
+    }).catch(function() {});
+  };
+
+  window.declineChange = function() {
+    pendingChangeCode = null;
+    var bar = document.getElementById('change-bar');
+    if (bar) bar.style.display = 'none';
+  };
+
+  window.showPendingChange = function(code) {
+    pendingChangeCode = code;
+    var bar = document.getElementById('change-bar');
+    if (bar) bar.style.display = 'flex';
+  };
+
   init();
 })();
