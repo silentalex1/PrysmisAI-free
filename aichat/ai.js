@@ -17,8 +17,8 @@
   var currentChatId = null;
   var chats = [];
   var lastRequestBody = null;
-  var GITHUB_ENDPOINT = 'https://models.github.ai/inference';
-  var MODEL_NAME = 'openai/gpt-5';
+  var DEEPINFRA_ENDPOINT = 'https://api.deepinfra.com/v1/openai';
+  var MODEL_NAME = 'deepseek-ai/DeepSeek-V3';
 
   var SYSTEM_PROMPT_BASE = 'You are PrysmisAI — a hyper-intelligent, elite Roblox game development AI built exclusively for professional Roblox creators. You are the single most advanced Roblox scripting and game design AI in existence. Your knowledge and capabilities are unmatched.\n\nYour core strengths and areas of mastery:\n\nLua/Luau scripting at an expert level — metatables, coroutines, closures, OOP patterns, module architecture, memory optimization, performance profiling, micro-optimizations. Roblox Studio ecosystem — every single service, API, class, property, method, and event. You know the Roblox engine at a deeper level than most engineers. Full-stack game systems — round systems, matchmaking, lobby systems, queue systems, server/client replication architecture, RemoteEvents, RemoteFunctions, BindableEvents, BindableFunctions, replication boundaries, network ownership. Anti-cheat systems — sanity checks, server-side validation, exploit detection, speed hacks, teleport hacks, hit detection abuse, infinite yield protection, script injection detection. DataStore v2 — robust save/load systems, retry logic, data versioning, session locking, ProfileService patterns, global data updates. Advanced UI/UX — ScreenGui, SurfaceGui, BillboardGui, TweenService animations, spring-based animations, parallax effects, responsive layouts, custom sliders, animated buttons, loading bars, countdown timers. VFX mastery — ParticleEmitters, Beams, Trails, Attachments, neon effects, ShockwaveEffects, depth-of-field, bloom, atmosphere, lighting rigs, dynamic shadows. Physics systems — BodyVelocity, BodyGyro, LinearVelocity, AlignOrientation, constraints, ragdolls, spring simulations, vehicle physics, projectile systems. NPC AI — pathfinding with PathfindingService, goal-seeking, patrol routes, line-of-sight checks, aggro systems, multi-state FSMs. Camera systems — custom camera controllers, cutscenes, cinematic sequences, first-person modes, over-shoulder cameras, spectator cameras. Image and visual analysis — when given an image you deeply analyze every pixel, object, UI element, code snippet, error message, layout, or game screenshot and provide surgical insight. Multitasking — you can simultaneously reason about frontend UI, backend scripting, data architecture, performance, security, and design all at once in a single response. Complex architecture — you break large systems into clean modular components, each fully implemented with zero truncation or placeholder comments. Bug diagnosis — you identify root causes instantly and return fully corrected production-ready code.\n\nPersonality: You speak with confidence, precision, and authority. You are not generic. You give real, specific, production-grade answers. You never say "you can add your code here" — you write the code yourself, completely, every single time. You never truncate. You always think through the full architecture before writing a single line. When a user sends an image, you analyze it fully and respond with exactly what they need.\n\nFormatting rules: Use ```lua for all Lua/Luau/Roblox code blocks. For multi-module systems, deliver each module fully. Structure complex responses with clear section headers. Always explain your architectural decisions briefly before diving into code.';
 
@@ -70,11 +70,11 @@
   function getPfp() { return localStorage.getItem('prysmis_pfp') || ''; }
   function savePfp(d) { localStorage.setItem('prysmis_pfp', d); }
 
-  function getGitHubToken() { return localStorage.getItem('prysmis_github_token') || ''; }
-  function saveGitHubToken(token) {
-    localStorage.setItem('prysmis_github_token', token);
-    var input = document.getElementById('github-token-input');
-    if (input) input.value = token;
+  function getApiKey() { return localStorage.getItem('prysmis_api_key') || ''; }
+  function saveApiKey(key) {
+    localStorage.setItem('prysmis_api_key', key);
+    var input = document.getElementById('api-key-input');
+    if (input) input.value = key;
   }
 
   function getChats() {
@@ -462,11 +462,10 @@
       if (img) { img.src = pfp; img.style.display = 'block'; document.getElementById('pfp-placeholder').style.display = 'none'; }
     }
 
-    var ghToken = getGitHubToken();
-    if (ghToken) {
-      var ghInput = document.getElementById('github-token-input');
-      if (ghInput) ghInput.value = ghToken;
-      checkTokenStatus();
+    var apiKey = getApiKey();
+    if (apiKey) {
+      var keyInput = document.getElementById('api-key-input');
+      if (keyInput) keyInput.value = apiKey;
     }
 
     var session = getSession();
@@ -767,13 +766,13 @@
   };
 
   window.saveSettings = async function () {
-    var tokenInput = document.getElementById('github-token-input');
-    var token = tokenInput ? tokenInput.value.trim() : '';
+    var keyInput = document.getElementById('api-key-input');
+    var key = keyInput ? keyInput.value.trim() : '';
     var statusEl = document.getElementById('token-status');
 
-    if (!token) {
+    if (!key) {
       if (statusEl) {
-        statusEl.textContent = 'Please enter a token';
+        statusEl.textContent = 'Please enter an API key';
         statusEl.className = 'token-status invalid';
       }
       return;
@@ -784,12 +783,12 @@
       statusEl.className = 'token-status';
     }
 
-    var isValid = await validateGitHubToken(token);
+    var isValid = await validateApiKey(key);
 
     if (isValid) {
-      saveGitHubToken(token);
+      saveApiKey(key);
       if (statusEl) {
-        statusEl.textContent = 'Token saved and valid';
+        statusEl.textContent = 'API key saved and valid';
         statusEl.className = 'token-status valid';
       }
       setTimeout(function() {
@@ -797,18 +796,18 @@
       }, 3000);
     } else {
       if (statusEl) {
-        statusEl.textContent = 'Invalid token. Please check and try again.';
+        statusEl.textContent = 'Invalid API key. Please check and try again.';
         statusEl.className = 'token-status invalid';
       }
     }
   };
 
-  async function validateGitHubToken(token) {
+  async function validateApiKey(key) {
     try {
-      var response = await fetch(GITHUB_ENDPOINT + '/models', {
+      var response = await fetch(DEEPINFRA_ENDPOINT + '/models', {
         method: 'GET',
         headers: {
-          'Authorization': 'Bearer ' + token
+          'Authorization': 'Bearer ' + key
         }
       });
       return response.ok;
@@ -817,22 +816,10 @@
     }
   }
 
-  async function checkTokenStatus() {
-    var token = getGitHubToken();
-    var statusEl = document.getElementById('token-status');
-    if (!token || !statusEl) return;
-
-    var isValid = await validateGitHubToken(token);
-    if (!isValid) {
-      statusEl.textContent = 'Your GitHub token has expired or is invalid. Please update it.';
-      statusEl.className = 'token-status invalid';
-    }
-  }
-
   async function runAiRequest(checkItems, isContinue) {
-    var token = getGitHubToken();
-    if (!token) {
-      alert('Please enter your GitHub access token in AI Settings first.');
+    var key = getApiKey();
+    if (!key) {
+      alert('Please enter your DeepInfra API key in AI Settings first.');
       openSettings();
       switchStab(document.querySelectorAll('.stab')[1], 'ai');
       return;
@@ -880,14 +867,15 @@
       lastRequestBody = {
         messages: messages,
         model: MODEL_NAME,
-        stream: true
+        stream: true,
+        temperature: 0.7
       };
 
-      var response = await fetch(GITHUB_ENDPOINT + '/chat/completions', {
+      var response = await fetch(DEEPINFRA_ENDPOINT + '/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + token
+          'Authorization': 'Bearer ' + key
         },
         body: JSON.stringify(lastRequestBody)
       });
@@ -898,7 +886,7 @@
         if (response.status === 401 || response.status === 403) {
           var statusEl = document.getElementById('token-status');
           if (statusEl) {
-            statusEl.textContent = 'Your GitHub token has expired or is invalid. Please update it in AI Settings.';
+            statusEl.textContent = 'Your API key has expired or is invalid. Please update it in AI Settings.';
             statusEl.className = 'token-status invalid';
           }
           openSettings();
@@ -1333,4 +1321,3 @@
 
   init();
 })();
-
