@@ -456,6 +456,19 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     addSystemMessage('Change declined.');
   };
 
+  async function checkPluginStatus() {
+    if (!token) return;
+    try {
+      var resp = await fetch('/api/studio/status?token=' + token);
+      var data = await resp.json();
+      if (data.connected) {
+        addSystemMessage('Plugin connected! Ready to accept changes.');
+      } else {
+        addSystemMessage('Plugin not connected. Please connect your Studio plugin.');
+      }
+    } catch(e) {}
+  }
+
   window.sendMessage = async function() {
     if (isGenerating) return;
     var msg = textarea.value.trim();
@@ -546,7 +559,8 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
       });
       var data = await resp.json();
       if (data.success) {
-        addSystemMessage('Connected to main website. Token registered.');
+        addSystemMessage('Token registered. Waiting for plugin connection...');
+        setTimeout(checkPluginStatus, 2000);
       } else {
         addSystemMessage('Token registration failed. Please reconnect from main site.');
       }
