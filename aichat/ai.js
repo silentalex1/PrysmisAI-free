@@ -1125,6 +1125,7 @@
     pendingChangeCode = null;
     var bar = document.getElementById('change-bar');
     if (bar) bar.style.display = 'none';
+    alert('Change declined.');
   };
 
   window.showPendingChange = function(code) {
