@@ -14,6 +14,11 @@
   var studioFiles = null;
   var studioToken = '';
   var studioStatusPoll = null;
+  var currentChatId = null;
+  var chats = [];
+  var lastRequestBody = null;
+  var GITHUB_ENDPOINT = 'https://models.github.ai/inference';
+  var MODEL_NAME = 'openai/gpt-5';
 
   var SYSTEM_PROMPT_BASE = 'You are PrysmisAI — a hyper-intelligent, elite Roblox game development AI built exclusively for professional Roblox creators. You are the single most advanced Roblox scripting and game design AI in existence. Your knowledge and capabilities are unmatched.\n\nYour core strengths and areas of mastery:\n\nLua/Luau scripting at an expert level — metatables, coroutines, closures, OOP patterns, module architecture, memory optimization, performance profiling, micro-optimizations. Roblox Studio ecosystem — every single service, API, class, property, method, and event. You know the Roblox engine at a deeper level than most engineers. Full-stack game systems — round systems, matchmaking, lobby systems, queue systems, server/client replication architecture, RemoteEvents, RemoteFunctions, BindableEvents, BindableFunctions, replication boundaries, network ownership. Anti-cheat systems — sanity checks, server-side validation, exploit detection, speed hacks, teleport hacks, hit detection abuse, infinite yield protection, script injection detection. DataStore v2 — robust save/load systems, retry logic, data versioning, session locking, ProfileService patterns, global data updates. Advanced UI/UX — ScreenGui, SurfaceGui, BillboardGui, TweenService animations, spring-based animations, parallax effects, responsive layouts, custom sliders, animated buttons, loading bars, countdown timers. VFX mastery — ParticleEmitters, Beams, Trails, Attachments, neon effects, ShockwaveEffects, depth-of-field, bloom, atmosphere, lighting rigs, dynamic shadows. Physics systems — BodyVelocity, BodyGyro, LinearVelocity, AlignOrientation, constraints, ragdolls, spring simulations, vehicle physics, projectile systems. NPC AI — pathfinding with PathfindingService, goal-seeking, patrol routes, line-of-sight checks, aggro systems, multi-state FSMs. Camera systems — custom camera controllers, cutscenes, cinematic sequences, first-person modes, over-shoulder cameras, spectator cameras. Image and visual analysis — when given an image you deeply analyze every pixel, object, UI element, code snippet, error message, layout, or game screenshot and provide surgical insight. Multitasking — you can simultaneously reason about frontend UI, backend scripting, data architecture, performance, security, and design all at once in a single response. Complex architecture — you break large systems into clean modular components, each fully implemented with zero truncation or placeholder comments. Bug diagnosis — you identify root causes instantly and return fully corrected production-ready code.\n\nPersonality: You speak with confidence, precision, and authority. You are not generic. You give real, specific, production-grade answers. You never say "you can add your code here" — you write the code yourself, completely, every single time. You never truncate. You always think through the full architecture before writing a single line. When a user sends an image, you analyze it fully and respond with exactly what they need.\n\nFormatting rules: Use ```lua for all Lua/Luau/Roblox code blocks. For multi-module systems, deliver each module fully. Structure complex responses with clear section headers. Always explain your architectural decisions briefly before diving into code.';
 
@@ -64,6 +69,25 @@
 
   function getPfp() { return localStorage.getItem('prysmis_pfp') || ''; }
   function savePfp(d) { localStorage.setItem('prysmis_pfp', d); }
+
+  function getGitHubToken() { return localStorage.getItem('prysmis_github_token') || ''; }
+  function saveGitHubToken(token) {
+    localStorage.setItem('prysmis_github_token', token);
+    var input = document.getElementById('github-token-input');
+    if (input) input.value = token;
+  }
+
+  function getChats() {
+    try { return JSON.parse(localStorage.getItem('prysmis_chats') || '[]'); } catch(e) { return []; }
+  }
+
+  function saveChats(c) { localStorage.setItem('prysmis_chats', JSON.stringify(c)); }
+
+  function getChatHistory(chatId) {
+    try { return JSON.parse(localStorage.getItem('prysmis_chat_' + chatId) || '[]'); } catch(e) { return []; }
+  }
+
+  function saveChatHistory(chatId, h) { localStorage.setItem('prysmis_chat_' + chatId, JSON.stringify(h)); }
 
   function getSystemPrompt() {
     var prompt = SYSTEM_PROMPT_BASE;
@@ -420,10 +444,28 @@
   function init() {
     showApp();
 
+    chats = getChats();
+    if (chats.length > 0) {
+      currentChatId = chats[0].id;
+      history = getChatHistory(currentChatId);
+    } else {
+      currentChatId = 'chat_' + Date.now();
+      chats.push({ id: currentChatId, title: 'New Chat', createdAt: Date.now() });
+      saveChats(chats);
+    }
+    renderChatList();
+    if (history.length > 0) renderMessages();
+
     var pfp = getPfp();
     if (pfp) {
       var img = document.getElementById('pfp-img');
       if (img) { img.src = pfp; img.style.display = 'block'; document.getElementById('pfp-placeholder').style.display = 'none'; }
+    }
+
+    var ghToken = getGitHubToken();
+    if (ghToken) {
+      var ghInput = document.getElementById('github-token-input');
+      if (ghInput) ghInput.value = ghToken;
     }
 
     var session = getSession();
@@ -479,6 +521,14 @@
   }
 
   window.newChat = function () {
+    if (currentChatId && history.length > 0) {
+      saveChatHistory(currentChatId, history);
+    }
+    currentChatId = 'chat_' + Date.now();
+    var title = history.length > 0 && history[0].content ? (typeof history[0].content === 'string' ? history[0].content : 'Chat').substring(0, 30) : 'New Chat';
+    chats.unshift({ id: currentChatId, title: title, createdAt: Date.now() });
+    saveChats(chats);
+    renderChatList();
     history = [];
     pendingImages = [];
     lastAiBubble = null;
@@ -491,6 +541,56 @@
     hideChecklist();
     closeCodePanel();
   };
+
+  window.loadChat = function (chatId) {
+    if (currentChatId && history.length > 0) {
+      saveChatHistory(currentChatId, history);
+    }
+    currentChatId = chatId;
+    history = getChatHistory(chatId);
+    renderMessages();
+  };
+
+  function renderChatList() {
+    var list = document.getElementById('chat-history-list');
+    if (!list) return;
+    list.innerHTML = '';
+    chats.forEach(function(c) {
+      var item = document.createElement('div');
+      item.className = 'chat-history-item' + (c.id === currentChatId ? ' active' : '');
+      item.textContent = c.title || 'Chat';
+      item.onclick = function() { loadChat(c.id); };
+      list.appendChild(item);
+    });
+  }
+
+  function renderMessages() {
+    var msgs = document.getElementById('messages');
+    msgs.innerHTML = '';
+    if (history.length === 0) {
+      document.getElementById('welcome').style.display = '';
+      return;
+    }
+    document.getElementById('welcome').style.display = 'none';
+    history.forEach(function(m) {
+      if (m.role === 'user') {
+        var text = '';
+        var images = [];
+        if (Array.isArray(m.content)) {
+          m.content.forEach(function(c) {
+            if (c.type === 'text') text = c.text;
+            else if (c.type === 'image') images.push({ dataUrl: 'data:' + c.source.media_type + ';base64,' + c.source.data });
+          });
+        } else {
+          text = m.content;
+        }
+        appendUserMsg(text, images);
+      } else if (m.role === 'assistant') {
+        lastAiBubble = appendAiMsg(m.content);
+      }
+    });
+    scrollBottom();
+  }
 
   window.switchMainTab = function (tab, btn) {
     document.querySelectorAll('.nav-tab').forEach(function(b) { b.classList.remove('active'); });
@@ -625,7 +725,7 @@
   };
 
   window.continueResponse = async function () {
-    if (generating) return;
+    if (generating || !lastRequestBody) return;
     document.getElementById('continue-btn').style.display = 'none';
     canContinue = false;
     history.push({ role: 'user', content: 'Continue exactly where you left off. Do not repeat anything, just continue writing from where it was cut off.' });
@@ -665,19 +765,13 @@
     await runAiRequest(checkItems, false);
   };
 
-  function getSelectedModel() {
-    return localStorage.getItem('prysmis_model') || 'gpt-5.2';
-  }
-
   window.toggleInputModelDropdown = function () {
     var list = document.getElementById('input-model-list');
     if (list) list.classList.toggle('open');
   };
 
   window.selectInputModel = function (el) {
-    var value = el.dataset.value;
     var label = el.textContent;
-    localStorage.setItem('prysmis_model', value);
     var lbl = document.getElementById('input-model-label');
     if (lbl) lbl.textContent = label;
     var list = document.getElementById('input-model-list');
@@ -693,6 +787,14 @@
   });
 
   async function runAiRequest(checkItems, isContinue) {
+    var token = getGitHubToken();
+    if (!token) {
+      alert('Please enter your GitHub access token in AI Settings first.');
+      openSettings();
+      switchStab(document.querySelectorAll('.stab')[1], 'ai');
+      return;
+    }
+
     generating = true;
     setStatus('busy');
     document.getElementById('send-btn').disabled = true;
@@ -711,16 +813,19 @@
     }
 
     try {
-      var selectedModel = getSelectedModel();
       var msgHistory = history.slice(-24);
 
-      var puterMessages = [{ role: 'system', content: getSystemPrompt() }];
+      var messages = [{ role: 'system', content: getSystemPrompt() }];
       msgHistory.forEach(function(m) {
         if (Array.isArray(m.content)) {
-          var text = m.content.filter(function(p) { return p.type === 'text'; }).map(function(p) { return p.text; }).join('\n');
-          puterMessages.push({ role: m.role, content: text || '' });
+          var content = [];
+          m.content.forEach(function(p) {
+            if (p.type === 'text') content.push({ type: 'text', text: p.text });
+            else if (p.type === 'image') content.push({ type: 'image_url', image_url: { url: 'data:' + p.source.media_type + ';base64,' + p.source.data } });
+          });
+          messages.push({ role: m.role, content: content });
         } else {
-          puterMessages.push({ role: m.role, content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) });
+          messages.push({ role: m.role, content: m.content });
         }
       });
 
@@ -729,22 +834,59 @@
 
       aiRowBubble.innerHTML = '<div class="thinking"><span></span><span></span><span></span></div>';
 
-      var response = await puter.ai.chat(puterMessages, { model: selectedModel, stream: true });
+      lastRequestBody = {
+        messages: messages,
+        model: MODEL_NAME,
+        stream: true
+      };
 
-      for await (var part of response) {
-        var chunkText = (part && part.text) ? part.text : '';
-        if (chunkText) {
-          if (firstChunk) {
-            firstChunk = false;
-            if (checkItems) { for (var ci = 0; ci < checkItems.length; ci++) tickChecklist(ci); }
-          }
-          streamedText += chunkText;
-          aiRowBubble.innerHTML = renderMarkdown(streamedText, true);
-          scrollBottom();
-        }
+      var response = await fetch(GITHUB_ENDPOINT + '/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + token
+        },
+        body: JSON.stringify(lastRequestBody)
+      });
+
+      if (!response.ok) {
+        var errorData = await response.json().catch(function() { return {}; });
+        throw new Error(errorData.error?.message || 'API error: ' + response.status);
       }
 
-      lastAiText = streamedText;
+      var reader = response.body.getReader();
+      var decoder = new TextDecoder();
+      var buffer = '';
+
+      while (true) {
+        var result = await reader.read();
+        if (result.done) break;
+        buffer += decoder.decode(result.value, { stream: true });
+        var lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i].trim();
+          if (line.startsWith('data: ')) {
+            var jsonStr = line.slice(6);
+            if (jsonStr === '[DONE]') continue;
+            try {
+              var data = JSON.parse(jsonStr);
+              var delta = data.choices?.[0]?.delta?.content;
+              if (delta) {
+                if (firstChunk) {
+                  firstChunk = false;
+                  if (checkItems) { for (var ci = 0; ci < checkItems.length; ci++) tickChecklist(ci); }
+                }
+                streamedText += delta;
+                lastAiText = streamedText;
+                aiRowBubble.innerHTML = renderMarkdown(streamedText, true);
+                scrollBottom();
+              }
+            } catch(e) {}
+          }
+        }
+      }
 
       if (streamedText) {
         if (isContinue) {
@@ -753,9 +895,11 @@
         } else {
           history.push({ role: 'assistant', content: streamedText });
         }
+        if (currentChatId) saveChatHistory(currentChatId, history);
       }
 
-      if (streamedText && (streamedText.split('```').length % 2 === 0)) {
+      var incomplete = streamedText && (streamedText.split('```').length % 2 === 0 || streamedText.endsWith('...') || streamedText.length > 3000);
+      if (incomplete) {
         canContinue = true;
         document.getElementById('continue-btn').style.display = 'flex';
       } else {
@@ -1136,4 +1280,3 @@
 
   init();
 })();
-
