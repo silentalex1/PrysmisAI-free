@@ -1051,12 +1051,12 @@ html, body { height: 100%; font-family: var(--sans); background: var(--bg); colo
 
 .model-badge {
   padding: 8px 16px;
-  background: rgba(0,188,188,0.12);
-  border: 1px solid rgba(0,188,188,0.25);
+  background: rgba(139, 92, 246, 0.12);
+  border: 1px solid rgba(139, 92, 246, 0.3);
   border-radius: 20px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--teal);
+  color: #a78bfa;
   letter-spacing: 0.3px;
 }
 .share-screen-btn {
@@ -1126,18 +1126,18 @@ html, body { height: 100%; font-family: var(--sans); background: var(--bg); colo
 .github-token-link {
   display: block;
   margin-top: 12px;
-  color: #60a5fa;
+  color: #a78bfa;
   font-size: 13px;
   text-decoration: none;
   font-weight: 500;
 }
 .github-token-link:hover {
   text-decoration: underline;
-  color: #93c5fd;
+  color: #c4b5fd;
 }
 .token-warning {
   margin-top: 14px;
-  color: #f87171;
+  color: #9ca3af;
   font-size: 13px;
   line-height: 1.5;
   font-weight: 500;
@@ -1149,10 +1149,10 @@ html, body { height: 100%; font-family: var(--sans); background: var(--bg); colo
   min-height: 20px;
 }
 .token-status.valid {
-  color: #4ade80;
+  color: #22c55e;
 }
 .token-status.invalid {
-  color: #f87171;
+  color: #ef4444;
 }
 .save-settings-btn {
   margin-top: 18px;
@@ -1201,3 +1201,4 @@ html, body { height: 100%; font-family: var(--sans); background: var(--bg); colo
   background: rgba(0,188,188,0.2);
   border-left: 2px solid var(--teal);
 }
+
