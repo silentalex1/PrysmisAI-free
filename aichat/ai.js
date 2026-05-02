@@ -287,16 +287,22 @@
     if (!studioToken || !pluginConnected) return;
     var cmdRegex = /```command\n([\s\S]*?)```/g;
     var match;
+    var sentCount = 0;
     while ((match = cmdRegex.exec(responseText)) !== null) {
       var rawJson = match[1].trim();
       try {
         var cmd = JSON.parse(rawJson);
-        await fetch('/api/studio/command', {
+        var resp = await fetch('/api/studio/command', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token: studioToken, command: cmd })
         });
+        var data = await resp.json();
+        if (data.success) sentCount++;
       } catch(e) {}
+    }
+    if (sentCount > 0) {
+      alert('Sent ' + sentCount + ' command(s) to Studio. Check your Studio plugin to see changes applied.');
     }
   }
 
