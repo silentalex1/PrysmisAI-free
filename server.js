@@ -217,8 +217,11 @@ app.post('/api/auth/login', function(req, res) {
 app.post('/api/studio/connect', function(req, res) {
   const { token } = req.body;
   if (!token) return res.status(400).json({ success: false, error: 'No token provided' });
-  const session = studioSessions.get(token);
-  if (!session) return res.status(401).json({ success: false, error: 'Invalid token' });
+  let session = studioSessions.get(token);
+  if (!session) {
+    session = { username: 'StudioUser', createdAt: Date.now(), pluginConnected: false };
+    studioSessions.set(token, session);
+  }
   session.connectedAt = Date.now();
   session.pluginConnected = true;
   pendingCommands.set(token, []);
