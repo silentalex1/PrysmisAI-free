@@ -35,6 +35,7 @@
         </div>
       </div>
       <div class="chat-nav-right">
+        <button class="nav-action-btn share-screen-btn" id="share-screen-btn" onclick="openShareScreen()">Share Screen</button>
         <button class="nav-action-btn" id="connect-plugin-btn" onclick="connectPlugin()">Connect plugin</button>
         <a href="https://www.roblox.com/library" target="_blank" class="nav-action-btn">Our plugin</a>
         <a href="/API" class="nav-action-btn">API Doc</a>
@@ -68,6 +69,11 @@
           AI Progress
         </div>
         <div id="checklist-items" class="checklist-items"></div>
+      </div>
+      <div id="change-bar" class="change-bar" style="display:none">
+        <div class="change-bar-label">AI suggested a change</div>
+        <button class="change-accept-btn" onclick="acceptChange()">Accept Change</button>
+        <button class="change-decline-btn" onclick="declineChange()">Decline Change</button>
       </div>
       <div id="input-area">
         <div id="image-preview-row" class="image-preview-row"></div>
