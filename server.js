@@ -18,7 +18,7 @@ async function getModel() {
   const { ChatOllama } = await import('@langchain/ollama');
   ollamaModel = new ChatOllama({
     baseUrl: process.env.OLLAMA_HOST || 'http://localhost:11434',
-    model: process.env.OLLAMA_MODEL || 'ChatGPT-5.2',
+    model: 'ChatGPT-5',
     streaming: true,
     temperature: 0.7,
     numCtx: 8192,
@@ -225,7 +225,7 @@ app.post('/api/studio/connect', function(req, res) {
   session.connectedAt = Date.now();
   session.pluginConnected = true;
   pendingCommands.set(token, []);
-  return res.json({ success: true, username: session.username, model: process.env.OLLAMA_MODEL || 'ChatGPT-5.2' });
+  return res.json({ success: true, username: session.username, model: process.env.OLLAMA_MODEL || 'ChatGPT-5' });
 });
 
 app.post('/api/studio/files', function(req, res) {
