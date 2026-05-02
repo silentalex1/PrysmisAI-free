@@ -351,9 +351,11 @@ app.post('/api/studio/screen-chat', async function(req, res) {
     const systemPrompt = `You are PrysmisAI, an expert Roblox Studio AI assistant. You can see the user's screen. When suggesting Lua code changes, always wrap the code in a JSON block at the END of your response like this: PRYSMIS_CODE_START{"code":"-- your lua code here"}PRYSMIS_CODE_END. Only include this block if you have actual code to apply. Keep your response helpful and concise.`;
 
     const contentParts = [];
-    if (frame) {
+    if (frame && frame.length > 0) {
       const base64Data = frame.replace(/^data:image\/[a-z]+;base64,/, '');
-      contentParts.push({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + base64Data } });
+      if (base64Data.length > 100) {
+        contentParts.push({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + base64Data } });
+      }
     }
     contentParts.push({ type: 'text', text: message });
 
@@ -380,7 +382,7 @@ app.post('/api/studio/screen-chat', async function(req, res) {
     const displayText = fullResponse.replace(/PRYSMIS_CODE_START[\s\S]*?PRYSMIS_CODE_END/, '').trim();
     return res.json({ success: true, text: displayText, code });
   } catch(err) {
-    return res.json({ success: false, error: err.message || 'AI error' });
+    return res.status(500).json({ success: false, error: err.message || 'AI processing failed' });
   }
 });
 
