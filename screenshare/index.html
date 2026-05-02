@@ -307,7 +307,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   window.startSharing = async function() {
     try {
       mediaStream = await navigator.mediaDevices.getDisplayMedia({
-        video: { cursor: 'always', frameRate: 60, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        video: { cursor: 'always', frameRate: 90, width: { ideal: 2560 }, height: { ideal: 1440 } },
         audio: false
       });
 
@@ -320,7 +320,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
         canvas.height = videoEl.videoHeight;
         setStatus(true);
         drawFrame();
-        captureInterval = setInterval(drawFrame, 16);
+        captureInterval = setInterval(drawFrame, 11);
       };
 
       mediaStream.getVideoTracks()[0].onended = function() {
@@ -493,11 +493,11 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
           changeBar.style.display = 'flex';
         }
       } else {
-        addMessage('ai', data.error || 'Something went wrong. Try again.');
+        addMessage('ai', 'Error: ' + (data.error || 'Failed to fetch AI response'));
       }
     } catch(e) {
       removeThinking();
-      addMessage('ai', 'Network error. Check your connection.');
+      addMessage('ai', 'Failed to fetch. Please check your connection and try again.');
     }
 
     isGenerating = false;
@@ -517,8 +517,30 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     el.style.height = Math.min(el.scrollHeight, 120) + 'px';
   };
 
+  async function initToken() {
+    if (!token) {
+      addSystemMessage('No token found. Please connect from the main website.');
+      return;
+    }
+    try {
+      var resp = await fetch('/api/studio/register-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: token, username: 'ScreenShareUser' })
+      });
+      var data = await resp.json();
+      if (data.success) {
+        addSystemMessage('Connected to main website. Token registered.');
+      } else {
+        addSystemMessage('Token registration failed. Please reconnect from main site.');
+      }
+    } catch(e) {
+      addSystemMessage('Failed to connect to main website. Check your connection.');
+    }
+  }
+
   setStatus(false);
-  addSystemMessage('Welcome! Click "Start Sharing" to begin.');
+  initToken();
 })();
 </script>
 </body>
