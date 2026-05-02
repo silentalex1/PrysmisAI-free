@@ -994,7 +994,8 @@ html, body { height: 100%; font-family: var(--sans); background: var(--bg); colo
 }
 
 .input-model-wrap {
-  position: relative;
+  display: flex;
+  align-items: center;
 }
 
 .input-model-btn {
@@ -1095,3 +1096,103 @@ html, body { height: 100%; font-family: var(--sans); background: var(--bg); colo
   transition: background 0.15s;
 }
 .change-decline-btn:hover { background: rgba(255,80,80,0.25); }
+
+.token-input {
+  width: 100%;
+  padding: 12px 14px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+.token-input:focus {
+  outline: none;
+  border-color: var(--teal);
+}
+.github-token-link {
+  display: block;
+  margin-top: 10px;
+  color: #3b82f6;
+  font-size: 13px;
+  text-decoration: none;
+  font-weight: 500;
+}
+.github-token-link:hover {
+  text-decoration: underline;
+}
+.token-warning {
+  margin-top: 12px;
+  color: #ef4444;
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 500;
+}
+.token-status {
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.token-status.valid {
+  color: #22c55e;
+}
+.token-status.invalid {
+  color: #ef4444;
+}
+.save-settings-btn {
+  margin-top: 20px;
+  padding: 12px 24px;
+  background: linear-gradient(135deg, var(--teal), #00d4d4);
+  border: none;
+  border-radius: 8px;
+  color: #000;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.save-settings-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,188,188,0.3);
+}
+.model-display-static {
+  padding: 10px 14px;
+  background: rgba(0,188,188,0.1);
+  border: 1px solid rgba(0,188,188,0.3);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #00bcbc;
+}
+
+#chat-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.chat-history-item {
+  padding: 8px 12px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.15s;
+}
+
+.chat-history-item:hover {
+  background: rgba(255,255,255,0.1);
+}
+
+.chat-history-item.active {
+  background: rgba(0,188,188,0.2);
+  border-left: 2px solid var(--teal);
+}
