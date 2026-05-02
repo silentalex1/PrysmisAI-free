@@ -344,9 +344,19 @@
 
   async function checkStudioStatus() {
     var token = getStoredToken();
-    if (!token) return;
+    if (!token) {
+      pluginConnected = false;
+      updatePluginStatusUI(false);
+      return;
+    }
     try {
       var resp = await fetch('/api/studio/status?token=' + token);
+      if (resp.status === 401) {
+        pluginConnected = false;
+        studioToken = '';
+        updatePluginStatusUI(false);
+        return;
+      }
       if (resp.ok) {
         var data = await resp.json();
         if (data.connected && !pluginConnected) {
@@ -360,7 +370,10 @@
           updatePluginStatusUI(false);
         }
       }
-    } catch(e) {}
+    } catch(e) {
+      pluginConnected = false;
+      updatePluginStatusUI(false);
+    }
   }
 
   async function loadStudioFilesFromServer(token) {
