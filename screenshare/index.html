@@ -523,7 +523,11 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
       if (!response.ok) {
         var errorData = await response.json().catch(function() { return {}; });
-        throw new Error(errorData.error?.message || 'API error: ' + response.status);
+        var errorMsg = errorData.error?.message || 'API error: ' + response.status;
+        if (response.status === 401 || response.status === 403) {
+          errorMsg = 'Your GitHub token has expired. Please update it in the main website AI Settings.';
+        }
+        throw new Error(errorMsg);
       }
 
       var reader = response.body.getReader();
