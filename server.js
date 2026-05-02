@@ -369,7 +369,7 @@ app.post('/api/studio/screen-chat', async function(req, res) {
     }
 
     let code = null;
-    const codeMatch = fullResponse.match(/PRYSMIS_CODE_START({.*?})PRYSMIS_CODE_END/s);
+    const codeMatch = fullResponse.match(/PRYSMIS_CODE_START(\{[\s\S]*?\})PRYSMIS_CODE_END/);
     if (codeMatch) {
       try {
         const parsed = JSON.parse(codeMatch[1]);
@@ -377,7 +377,7 @@ app.post('/api/studio/screen-chat', async function(req, res) {
       } catch(e) {}
     }
 
-    const displayText = fullResponse.replace(/PRYSMIS_CODE_START.*?PRYSMIS_CODE_END/s, '').trim();
+    const displayText = fullResponse.replace(/PRYSMIS_CODE_START[\s\S]*?PRYSMIS_CODE_END/, '').trim();
     return res.json({ success: true, text: displayText, code });
   } catch(err) {
     return res.json({ success: false, error: err.message || 'AI error' });
