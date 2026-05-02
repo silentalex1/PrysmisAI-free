@@ -477,27 +477,43 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     var frame = captureFrame();
 
     try {
-      var resp = await fetch('/api/studio/screen-chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: token, message: msg, frame: frame })
-      });
+      var systemPrompt = 'You are PrysmisAI, an expert Roblox Studio AI assistant. You can see the user\'s screen. When suggesting Lua code changes, always wrap the code in a JSON block at the END of your response like this: PRYSMIS_CODE_START{"code":"-- your lua code here"}PRYSMIS_CODE_END. Only include this block if you have actual code to apply. Keep your response helpful and concise.';
 
-      var data = await resp.json();
+      var messages = [{ role: 'system', content: systemPrompt }];
+      if (frame && frame.length > 100) {
+        messages.push({ role: 'user', content: [{ type: 'image_url', image_url: { url: frame } }, { type: 'text', text: msg }] });
+      } else {
+        messages.push({ role: 'user', content: msg });
+      }
+
+      var response = await puter.ai.chat(messages, { model: 'gpt-4o', stream: true });
+
+      var fullResponse = '';
+      for await (var part of response) {
+        var chunkText = (part && part.text) ? part.text : '';
+        fullResponse += chunkText;
+      }
+
       removeThinking();
 
-      if (data.success) {
-        addMessage('ai', data.text, data.code || null);
-        if (data.code) {
-          pendingCode = data.code;
-          changeBar.style.display = 'flex';
-        }
-      } else {
-        addMessage('ai', 'Error: ' + (data.error || 'Server error ' + resp.status));
+      var code = null;
+      var codeMatch = fullResponse.match(/PRYSMIS_CODE_START(\{[\s\S]*?\})PRYSMIS_CODE_END/);
+      if (codeMatch) {
+        try {
+          var parsed = JSON.parse(codeMatch[1]);
+          code = parsed.code || null;
+        } catch(e) {}
+      }
+
+      var displayText = fullResponse.replace(/PRYSMIS_CODE_START[\s\S]*?PRYSMIS_CODE_END/, '').trim();
+      addMessage('ai', displayText, code);
+      if (code) {
+        pendingCode = code;
+        changeBar.style.display = 'flex';
       }
     } catch(e) {
       removeThinking();
-      addMessage('ai', 'Network error. Check connection and retry.');
+      addMessage('ai', 'AI error: ' + (e.message || 'Failed to get response'));
     }
 
     isGenerating = false;
@@ -543,5 +559,6 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
   initToken();
 })();
 </script>
+<script src="https://js.puter.com/v2/"></script>
 </body>
 </html>
