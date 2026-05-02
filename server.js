@@ -29,7 +29,6 @@ async function getModel() {
 app.use('/aichat', express.static(path.join(__dirname, 'aichat')));
 app.use('/auth', express.static(path.join(__dirname, 'auth')));
 app.use('/API', express.static(path.join(__dirname, 'API')));
-app.use('/screenshare', express.static(path.join(__dirname, 'screenshare')));
 app.use(express.static(path.join(__dirname)));
 
 app.get('/', function(req, res) {
@@ -286,6 +285,7 @@ app.get('/api/studio/status', function(req, res) {
   return res.json({ connected: session.pluginConnected, username: session.username });
 });
 
+app.use('/screenshare', express.static(path.join(__dirname, 'screenshare')));
 app.get('/screenshare', function(req, res) {
   res.sendFile(path.join(__dirname, 'screenshare', 'index.html'));
 });
@@ -387,4 +387,3 @@ app.post('/api/studio/screen-chat', async function(req, res) {
 app.listen(PORT, function() {
   console.log('PrysmisAI running on http://localhost:' + PORT);
 });
-
