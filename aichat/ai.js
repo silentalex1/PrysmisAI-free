@@ -466,6 +466,7 @@
     if (ghToken) {
       var ghInput = document.getElementById('github-token-input');
       if (ghInput) ghInput.value = ghToken;
+      checkTokenStatus();
     }
 
     var session = getSession();
@@ -765,26 +766,68 @@
     await runAiRequest(checkItems, false);
   };
 
-  window.toggleInputModelDropdown = function () {
-    var list = document.getElementById('input-model-list');
-    if (list) list.classList.toggle('open');
-  };
+  window.saveSettings = async function () {
+    var tokenInput = document.getElementById('github-token-input');
+    var token = tokenInput ? tokenInput.value.trim() : '';
+    var statusEl = document.getElementById('token-status');
 
-  window.selectInputModel = function (el) {
-    var label = el.textContent;
-    var lbl = document.getElementById('input-model-label');
-    if (lbl) lbl.textContent = label;
-    var list = document.getElementById('input-model-list');
-    if (list) list.classList.remove('open');
-  };
-
-  document.addEventListener('click', function(e) {
-    var wrap = document.getElementById('input-model-wrap');
-    if (wrap && !wrap.contains(e.target)) {
-      var list = document.getElementById('input-model-list');
-      if (list) list.classList.remove('open');
+    if (!token) {
+      if (statusEl) {
+        statusEl.textContent = 'Please enter a token';
+        statusEl.className = 'token-status invalid';
+      }
+      return;
     }
-  });
+
+    if (statusEl) {
+      statusEl.textContent = 'Validating...';
+      statusEl.className = 'token-status';
+    }
+
+    var isValid = await validateGitHubToken(token);
+
+    if (isValid) {
+      saveGitHubToken(token);
+      if (statusEl) {
+        statusEl.textContent = 'Token saved and valid';
+        statusEl.className = 'token-status valid';
+      }
+      setTimeout(function() {
+        if (statusEl) statusEl.textContent = '';
+      }, 3000);
+    } else {
+      if (statusEl) {
+        statusEl.textContent = 'Invalid token. Please check and try again.';
+        statusEl.className = 'token-status invalid';
+      }
+    }
+  };
+
+  async function validateGitHubToken(token) {
+    try {
+      var response = await fetch(GITHUB_ENDPOINT + '/models', {
+        method: 'GET',
+        headers: {
+          'Authorization': 'Bearer ' + token
+        }
+      });
+      return response.ok;
+    } catch(e) {
+      return false;
+    }
+  }
+
+  async function checkTokenStatus() {
+    var token = getGitHubToken();
+    var statusEl = document.getElementById('token-status');
+    if (!token || !statusEl) return;
+
+    var isValid = await validateGitHubToken(token);
+    if (!isValid) {
+      statusEl.textContent = 'Your GitHub token has expired or is invalid. Please update it.';
+      statusEl.className = 'token-status invalid';
+    }
+  }
 
   async function runAiRequest(checkItems, isContinue) {
     var token = getGitHubToken();
@@ -851,7 +894,17 @@
 
       if (!response.ok) {
         var errorData = await response.json().catch(function() { return {}; });
-        throw new Error(errorData.error?.message || 'API error: ' + response.status);
+        var errorMsg = errorData.error?.message || 'API error: ' + response.status;
+        if (response.status === 401 || response.status === 403) {
+          var statusEl = document.getElementById('token-status');
+          if (statusEl) {
+            statusEl.textContent = 'Your GitHub token has expired or is invalid. Please update it in AI Settings.';
+            statusEl.className = 'token-status invalid';
+          }
+          openSettings();
+          switchStab(document.querySelectorAll('.stab')[1], 'ai');
+        }
+        throw new Error(errorMsg);
       }
 
       var reader = response.body.getReader();
