@@ -29,6 +29,7 @@ async function getModel() {
 app.use('/aichat', express.static(path.join(__dirname, 'aichat')));
 app.use('/auth', express.static(path.join(__dirname, 'auth')));
 app.use('/API', express.static(path.join(__dirname, 'API')));
+app.use('/screenshare', express.static(path.join(__dirname, 'screenshare')));
 app.use(express.static(path.join(__dirname)));
 
 app.get('/', function(req, res) {
@@ -285,53 +286,101 @@ app.get('/api/studio/status', function(req, res) {
   return res.json({ connected: session.pluginConnected, username: session.username });
 });
 
+app.get('/screenshare', function(req, res) {
+  res.sendFile(path.join(__dirname, 'screenshare', 'index.html'));
+});
+
 app.post('/api/studio/animate', async function(req, res) {
   const { token, prompt } = req.body;
   if (!token || !prompt) return res.status(400).json({ success: false, error: 'Missing token or prompt' });
-
   const session = studioSessions.get(token);
-  if (!session) return res.status(401).json({ success: false, error: 'Invalid or expired token' });
+  if (!session) return res.status(401).json({ success: false, error: 'Invalid token' });
 
-  const animSystemPrompt = [
-    'You are an expert Roblox Luau animation engineer. You write ONLY pure Luau code — no markdown, no backticks, no code fences, no comments, no explanations.',
-    'Your code uses TweenService for all animations. It must be completely self-contained and executable with loadstring().',
-    'Rules:',
-    '1. Use game:GetService("TweenService") and game:GetService("RunService") as needed.',
-    '2. Find target instances using game.Workspace:FindFirstChild() or :FindFirstChildWhichIsA().',
-    '3. If no specific instance name is given, animate any BasePart found in Workspace.',
-    '4. Use TweenInfo.new() with appropriate Time, EasingStyle, EasingDirection, RepeatCount, Reverses, DelayTime.',
-    '5. For looping animations use RepeatCount = -1 and Reverses = true.',
-    '6. Chain multiple tweens using Tween.Completed:Connect() for sequential animations.',
-    '7. Always play animations immediately — call :Play() on every tween.',
-    '8. Wrap everything in a coroutine or spawn() so it does not block.',
-    '9. Return ONLY raw Luau code. Absolutely no markdown. No backticks. No code block syntax.',
-    '10. The code must be smooth, polished, and production-quality.',
-  ].join('\n');
+  try {
+    const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
+    const model = await getModel();
+    const systemPrompt = `You are an elite Roblox Lua animation engineer. You write buttery-smooth, visually stunning, professional-grade animations using TweenService. Rules: use EasingStyle.Quint or EasingStyle.Sine with EasingDirection.InOut for professional easing. Layer multiple tweens for complex motion. Use RepeatCount=-1 and Reverses=true for seamless loops. Always access instances safely with game.Workspace. Return ONLY raw executable Lua code. No markdown. No code fences. No comments. No explanation.`;
+    const msgs = [
+      new SystemMessage(systemPrompt),
+      new HumanMessage(`Create this Roblox Studio animation: ${prompt}. Make it look professional, smooth, and visually impressive. Use TweenService. Access target parts from game.Workspace. Ensure it runs correctly in a plugin context.`)
+    ];
+
+    let code = '';
+    const stream = await model.stream(msgs);
+    for await (const chunk of stream) {
+      code += typeof chunk.content === 'string' ? chunk.content : '';
+    }
+    code = code.replace(/```lua\n?/gi, '').replace(/```\n?/g, '').trim();
+    return res.json({ success: true, code });
+  } catch(err) {
+    return res.json({ success: false, error: err.message || 'AI error' });
+  }
+});
+
+const screenCaptures = new Map();
+
+app.post('/api/studio/screen-frame', function(req, res) {
+  const { token, frame } = req.body;
+  if (!token || !frame) return res.status(400).json({ success: false });
+  const session = studioSessions.get(token);
+  if (!session) return res.status(401).json({ success: false });
+  screenCaptures.set(token, { frame, capturedAt: Date.now() });
+  return res.json({ success: true });
+});
+
+app.get('/api/studio/screen-frame', function(req, res) {
+  const token = req.query.token;
+  if (!token) return res.status(400).json({ success: false });
+  const session = studioSessions.get(token);
+  if (!session) return res.status(401).json({ success: false });
+  const capture = screenCaptures.get(token);
+  if (!capture) return res.json({ success: true, frame: null });
+  return res.json({ success: true, frame: capture.frame, capturedAt: capture.capturedAt });
+});
+
+app.post('/api/studio/screen-chat', async function(req, res) {
+  const { token, message, frame } = req.body;
+  if (!token || !message) return res.status(400).json({ success: false, error: 'Missing fields' });
+  const session = studioSessions.get(token);
+  if (!session) return res.status(401).json({ success: false, error: 'Invalid token' });
 
   try {
     const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
     const model = await getModel();
 
-    const messages = [
-      new SystemMessage(animSystemPrompt),
-      new HumanMessage('Create a Roblox animation for this request: ' + prompt),
+    const systemPrompt = `You are PrysmisAI, an expert Roblox Studio AI assistant. You can see the user's screen. When suggesting Lua code changes, always wrap the code in a JSON block at the END of your response like this: PRYSMIS_CODE_START{"code":"-- your lua code here"}PRYSMIS_CODE_END. Only include this block if you have actual code to apply. Keep your response helpful and concise.`;
+
+    const contentParts = [];
+    if (frame) {
+      const base64Data = frame.replace(/^data:image\/[a-z]+;base64,/, '');
+      contentParts.push({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + base64Data } });
+    }
+    contentParts.push({ type: 'text', text: message });
+
+    const msgs = [
+      new SystemMessage(systemPrompt),
+      new HumanMessage({ content: contentParts })
     ];
 
-    let fullCode = '';
-    const stream = await model.stream(messages);
+    let fullResponse = '';
+    const stream = await model.stream(msgs);
     for await (const chunk of stream) {
-      const text = typeof chunk.content === 'string' ? chunk.content : '';
-      fullCode += text;
+      fullResponse += typeof chunk.content === 'string' ? chunk.content : '';
     }
 
-    fullCode = fullCode
-      .replace(/```(?:lua|luau)?\n?/gi, '')
-      .replace(/```/g, '')
-      .trim();
+    let code = null;
+    const codeMatch = fullResponse.match(/PRYSMIS_CODE_START({.*?})PRYSMIS_CODE_END/s);
+    if (codeMatch) {
+      try {
+        const parsed = JSON.parse(codeMatch[1]);
+        code = parsed.code || null;
+      } catch(e) {}
+    }
 
-    return res.json({ success: true, code: fullCode });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message || 'AI generation error' });
+    const displayText = fullResponse.replace(/PRYSMIS_CODE_START.*?PRYSMIS_CODE_END/s, '').trim();
+    return res.json({ success: true, text: displayText, code });
+  } catch(err) {
+    return res.json({ success: false, error: err.message || 'AI error' });
   }
 });
 
