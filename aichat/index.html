@@ -197,7 +197,16 @@
 
         <div class="spanel" id="spanel-ai">
           <h3 class="spanel-title">AI Settings</h3>
-          <div class="ai-settings-placeholder">Please wait for features to be added here. If you got some please let me know.</div>
+          <div class="setting-group">
+            <label>GitHub Access Token</label>
+            <input type="password" id="github-token-input" placeholder="Enter in your access token." onchange="saveGitHubToken(this.value)">
+            <a href="https://github.com/settings/personal-access-tokens/new?description=Used+to+call+GitHub+Models+APIs+to+easily+run+LLMs%3A+https%3A%2F%2Fdocs.github.com%2Fgithub-models%2Fquickstart%23step-2-make-an-api-call&name=GitHub+Models+token&user_models=read" target="_blank" class="github-token-link">Click here directly to generate your github access token.</a>
+            <p class="token-warning">After 24hours this access token will be deleted in our website as this is not going to be save or wont be saved in general.</p>
+          </div>
+          <div class="setting-group">
+            <label>AI Model</label>
+            <div class="model-display">ChatGPT-5 (openai/gpt-5)</div>
+          </div>
         </div>
 
         <div class="spanel" id="spanel-studio">
@@ -272,7 +281,6 @@
   </div>
 </div>
 
-<script src="https://js.puter.com/v2/"></script>
 <script src="ai.js"></script>
 </body>
 </html>
