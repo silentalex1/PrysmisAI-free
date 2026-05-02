@@ -18,7 +18,7 @@ async function getModel() {
   const { ChatOllama } = await import('@langchain/ollama');
   ollamaModel = new ChatOllama({
     baseUrl: process.env.OLLAMA_HOST || 'http://localhost:11434',
-    model: process.env.OLLAMA_MODEL || 'llama3.2-vision',
+    model: process.env.OLLAMA_MODEL || 'ChatGPT-5.2',
     streaming: true,
     temperature: 0.7,
     numCtx: 8192,
@@ -222,7 +222,7 @@ app.post('/api/studio/connect', function(req, res) {
   session.connectedAt = Date.now();
   session.pluginConnected = true;
   pendingCommands.set(token, []);
-  return res.json({ success: true, username: session.username, model: process.env.OLLAMA_MODEL || 'llama3.2-vision' });
+  return res.json({ success: true, username: session.username, model: process.env.OLLAMA_MODEL || 'ChatGPT-5.2' });
 });
 
 app.post('/api/studio/files', function(req, res) {
@@ -346,7 +346,12 @@ app.post('/api/studio/screen-chat', async function(req, res) {
 
   try {
     const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
-    const model = await getModel();
+    let model;
+    try {
+      model = await getModel();
+    } catch(modelErr) {
+      return res.status(503).json({ success: false, error: 'AI service unavailable. Please try again.' });
+    }
 
     const systemPrompt = `You are PrysmisAI, an expert Roblox Studio AI assistant. You can see the user's screen. When suggesting Lua code changes, always wrap the code in a JSON block at the END of your response like this: PRYSMIS_CODE_START{"code":"-- your lua code here"}PRYSMIS_CODE_END. Only include this block if you have actual code to apply. Keep your response helpful and concise.`;
 
@@ -365,9 +370,13 @@ app.post('/api/studio/screen-chat', async function(req, res) {
     ];
 
     let fullResponse = '';
-    const stream = await model.stream(msgs);
-    for await (const chunk of stream) {
-      fullResponse += typeof chunk.content === 'string' ? chunk.content : '';
+    try {
+      const stream = await model.stream(msgs);
+      for await (const chunk of stream) {
+        fullResponse += typeof chunk.content === 'string' ? chunk.content : '';
+      }
+    } catch(streamErr) {
+      return res.status(503).json({ success: false, error: 'AI response failed. Please try again.' });
     }
 
     let code = null;
@@ -382,7 +391,7 @@ app.post('/api/studio/screen-chat', async function(req, res) {
     const displayText = fullResponse.replace(/PRYSMIS_CODE_START[\s\S]*?PRYSMIS_CODE_END/, '').trim();
     return res.json({ success: true, text: displayText, code });
   } catch(err) {
-    return res.status(500).json({ success: false, error: err.message || 'AI processing failed' });
+    return res.status(500).json({ success: false, error: 'Server error. Please try again.' });
   }
 });
 
