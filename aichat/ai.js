@@ -1,484 +1,1194 @@
-let currentChatId = null;
-let currentModel = 'deepseek-ai/DeepSeek-V3';
-let deepinfraApiKey = '';
+(function () {
 
-function getDeepinfraKey() { return localStorage.getItem('prysmis_deepinfra_key') || ''; }
-function saveDeepinfraKey(k) { localStorage.setItem('prysmis_deepinfra_key', k); }
+  var BASE_URL = '';
+  var history = [];
+  var generating = false;
+  var pendingImages = [];
+  var currentCode = '';
+  var pluginConnected = false;
+  var commMessages = [];
+  var games = [];
+  var lastAiBubble = null;
+  var lastAiText = '';
+  var canContinue = false;
+  var studioFiles = null;
+  var studioToken = '';
+  var studioStatusPoll = null;
 
-function getCurrentUsername() { return localStorage.getItem('prysmis_username') || 'User'; }
-function setCurrentUsername(u) { localStorage.setItem('prysmis_username', u); }
+  var SYSTEM_PROMPT_BASE = 'You are PrysmisAI — a hyper-intelligent, elite Roblox game development AI built exclusively for professional Roblox creators. You are the single most advanced Roblox scripting and game design AI in existence. Your knowledge and capabilities are unmatched.\n\nYour core strengths and areas of mastery:\n\nLua/Luau scripting at an expert level — metatables, coroutines, closures, OOP patterns, module architecture, memory optimization, performance profiling, micro-optimizations. Roblox Studio ecosystem — every single service, API, class, property, method, and event. You know the Roblox engine at a deeper level than most engineers. Full-stack game systems — round systems, matchmaking, lobby systems, queue systems, server/client replication architecture, RemoteEvents, RemoteFunctions, BindableEvents, BindableFunctions, replication boundaries, network ownership. Anti-cheat systems — sanity checks, server-side validation, exploit detection, speed hacks, teleport hacks, hit detection abuse, infinite yield protection, script injection detection. DataStore v2 — robust save/load systems, retry logic, data versioning, session locking, ProfileService patterns, global data updates. Advanced UI/UX — ScreenGui, SurfaceGui, BillboardGui, TweenService animations, spring-based animations, parallax effects, responsive layouts, custom sliders, animated buttons, loading bars, countdown timers. VFX mastery — ParticleEmitters, Beams, Trails, Attachments, neon effects, ShockwaveEffects, depth-of-field, bloom, atmosphere, lighting rigs, dynamic shadows. Physics systems — BodyVelocity, BodyGyro, LinearVelocity, AlignOrientation, constraints, ragdolls, spring simulations, vehicle physics, projectile systems. NPC AI — pathfinding with PathfindingService, goal-seeking, patrol routes, line-of-sight checks, aggro systems, multi-state FSMs. Camera systems — custom camera controllers, cutscenes, cinematic sequences, first-person modes, over-shoulder cameras, spectator cameras. Image and visual analysis — when given an image you deeply analyze every pixel, object, UI element, code snippet, error message, layout, or game screenshot and provide surgical insight. Multitasking — you can simultaneously reason about frontend UI, backend scripting, data architecture, performance, security, and design all at once in a single response. Complex architecture — you break large systems into clean modular components, each fully implemented with zero truncation or placeholder comments. Bug diagnosis — you identify root causes instantly and return fully corrected production-ready code.\n\nPersonality: You speak with confidence, precision, and authority. You are not generic. You give real, specific, production-grade answers. You never say "you can add your code here" — you write the code yourself, completely, every single time. You never truncate. You always think through the full architecture before writing a single line. When a user sends an image, you analyze it fully and respond with exactly what they need.\n\nFormatting rules: Use ```lua for all Lua/Luau/Roblox code blocks. For multi-module systems, deliver each module fully. Structure complex responses with clear section headers. Always explain your architectural decisions briefly before diving into code.';
 
-function getChats() { try { return JSON.parse(localStorage.getItem('prysmis_chats') || '[]'); } catch { return []; } }
-function saveChats(c) { localStorage.setItem('prysmis_chats', JSON.stringify(c)); }
+  var SYSTEM_PROMPT_STUDIO = '\n\nThe user has connected Roblox Studio via the PrysmisAI plugin. You have full visibility of their workspace structure. When asked to create, modify, or delete anything in their game, emit a JSON command block using this exact format:\n\n```command\n{"action":"create_script","name":"AntiCheat","scriptType":"Script","parent":"ServerScriptService","source":"-- full script here"}\n```\n\nAvailable actions:\n- create_part: {action, name, size:[x,y,z], position:[x,y,z], anchored:bool, color:"BrickColor name", material:"Grass"}\n- create_script: {action, name, scriptType:"Script|LocalScript|ModuleScript", parent:"ServiceName", source:"full lua code"}\n- create_model: {action, name, parent:"ServiceName"}\n- delete_instance: {action, path:"Workspace.ModelName.PartName"}\n- modify_property: {action, path:"Workspace.Part", property:"Anchored", value:true}\n- create_gui: {action, name, parent:"StarterGui", children:[{className, properties:{}, children:[]}]}\n- create_terrain: {action, center:[x,y,z], size:[x,y,z], material:"Grass"}\n- batch: {action:"batch", commands:[...array of commands...]}\n\nAlways emit command blocks when the user asks you to create or change things in their game. Never truncate source code inside command blocks.';
 
-function getChatHistory(chatId) { try { return JSON.parse(localStorage.getItem('prysmis_chat_' + chatId) || '[]'); } catch { return []; } }
-function saveChatHistory(chatId, h) { localStorage.setItem('prysmis_chat_' + chatId, JSON.stringify(h)); }
+  var CHECKLIST_TRIGGERS = [
+    { pattern: /\b(script|scripts|scripting|luau?)\b/i, label: 'Scripting the logic' },
+    { pattern: /\b(fix|fixing|debug|error|bug|issue)\b/i, label: 'Diagnosing the error' },
+    { pattern: /\b(vfx|effect|particle|beam|trail|spark)\b/i, label: 'Building VFX' },
+    { pattern: /\b(ui|gui|frame|button|screen|interface)\b/i, label: 'Designing the UI' },
+    { pattern: /\b(map|terrain|build|model|world|environment)\b/i, label: 'Building the map' },
+    { pattern: /\b(datastore|save|load|data|persist)\b/i, label: 'Setting up DataStore' },
+    { pattern: /\b(remote|event|function|fire|replicate)\b/i, label: 'Wiring Remote Events' },
+    { pattern: /\b(animat|tween|lerp|transition)\b/i, label: 'Adding animations' },
+    { pattern: /\b(anti.?cheat|exploit|detect|sanity)\b/i, label: 'Building anti-cheat' },
+    { pattern: /\b(loading|screen|spawn|cinematic)\b/i, label: 'Creating loading screen' },
+    { pattern: /\b(game|round|match|system|mechanic)\b/i, label: 'Designing game system' },
+    { pattern: /\b(code|write|create|make|generate|build)\b/i, label: 'Writing the code' },
+    { pattern: /\b(explain|how|what|why|analyze|image|screenshot|look)\b/i, label: 'Analyzing your request' }
+  ];
 
-function getPfp() { return localStorage.getItem('prysmis_pfp') || ''; }
-function savePfp(d) { localStorage.setItem('prysmis_pfp', d); }
-
-function getCommMessages() { try { return JSON.parse(localStorage.getItem('prysmis_comm_msgs') || '[]'); } catch { return []; } }
-function saveCommMessages(msgs) { localStorage.setItem('prysmis_comm_msgs', JSON.stringify(msgs.slice(-200))); }
-
-function getGames() { try { return JSON.parse(localStorage.getItem('prysmis_games') || '[]'); } catch { return []; } }
-function saveGames(g) { localStorage.setItem('prysmis_games', JSON.stringify(g)); }
-
-function newChat() {
-  currentChatId = 'chat_' + Date.now();
-  const chats = getChats();
-  chats.push({ id: currentChatId, name: 'New Chat', createdAt: Date.now() });
-  saveChats(chats);
-  saveChatHistory(currentChatId, []);
-  renderChatHistory();
-  clearChatArea();
-}
-
-function loadChat(chatId) {
-  currentChatId = chatId;
-  clearChatArea();
-  const history = getChatHistory(chatId);
-  history.forEach(msg => {
-    appendMessage(msg.role, msg.content);
-  });
-}
-
-function clearChatArea() {
-  document.getElementById('messages').innerHTML = '';
-  document.getElementById('welcome').style.display = 'flex';
-}
-
-function appendMessage(role, content) {
-  const messagesDiv = document.getElementById('messages');
-  const msgRow = document.createElement('div');
-  msgRow.className = 'msg-row ' + (role === 'user' ? 'user' : 'ai');
-  
-  const avatar = document.createElement('div');
-  avatar.className = 'msg-avatar';
-  if (role === 'user') {
-    avatar.textContent = 'U';
-  } else {
-    avatar.textContent = 'AI';
+  function getSession() {
+    try { return JSON.parse(localStorage.getItem('prysmis_session') || 'null'); } catch(e) { return null; }
   }
-  
-  const body = document.createElement('div');
-  body.className = 'msg-body';
-  
-  const label = document.createElement('div');
-  label.className = 'msg-label';
-  label.textContent = role === 'user' ? 'You' : 'Prysmis AI';
-  
-  const text = document.createElement('div');
-  text.className = 'msg-text';
-  text.innerHTML = content;
-  
-  body.appendChild(label);
-  body.appendChild(text);
-  msgRow.appendChild(avatar);
-  msgRow.appendChild(body);
-  messagesDiv.appendChild(msgRow);
-  messagesDiv.scrollTop = messagesDiv.scrollHeight;
-}
 
-async function sendMessage() {
-  const input = document.getElementById('user-input');
-  const message = input.value.trim();
-  
-  if (!message) return;
-  
-  deepinfraApiKey = getDeepinfraKey();
-  if (!deepinfraApiKey) {
-    alert('Please set your DeepInfra API key in Settings first.');
-    openSettings();
-    return;
+  function getStoredToken() {
+    return localStorage.getItem('prysmis_studio_token') || '';
   }
-  
-  if (!currentChatId) newChat();
-  
-  appendMessage('user', message);
-  input.value = '';
-  input.style.height = 'auto';
-  
-  document.getElementById('welcome').style.display = 'none';
-  
-  const history = getChatHistory(currentChatId);
-  history.push({ role: 'user', content: message });
-  saveChatHistory(currentChatId, history);
-  
-  const loadingDiv = document.createElement('div');
-  loadingDiv.className = 'msg-row ai';
-  loadingDiv.innerHTML = '<div class="msg-avatar">AI</div><div class="msg-body"><div class="msg-label">Prysmis AI</div><div class="thinking"><span></span><span></span><span></span></div></div>';
-  document.getElementById('messages').appendChild(loadingDiv);
-  document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
-  
-  try {
-    const response = await fetch('https://api.deepinfra.com/v1/openai/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + deepinfraApiKey
-      },
-      body: JSON.stringify({
-        model: currentModel,
-        messages: history.map(m => ({ role: m.role, content: m.content })),
-        temperature: 0.7,
-        max_tokens: 2000
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error('API Error: ' + response.status);
+
+  function generateToken() {
+    var chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    var result = '';
+    for (var i = 0; i < 26; i++) { result += chars.charAt(Math.floor(Math.random() * chars.length)); }
+    return result;
+  }
+
+  function getCommMessages() {
+    try { return JSON.parse(localStorage.getItem('prysmis_comm_msgs') || '[]'); } catch(e) { return []; }
+  }
+
+  function saveCommMessages(msgs) { localStorage.setItem('prysmis_comm_msgs', JSON.stringify(msgs.slice(-200))); }
+
+  function getGames() {
+    try { return JSON.parse(localStorage.getItem('prysmis_games') || '[]'); } catch(e) { return []; }
+  }
+
+  function saveGames(g) { localStorage.setItem('prysmis_games', JSON.stringify(g)); }
+
+  function getPfp() { return localStorage.getItem('prysmis_pfp') || ''; }
+  function savePfp(d) { localStorage.setItem('prysmis_pfp', d); }
+
+  function getSystemPrompt() {
+    var prompt = SYSTEM_PROMPT_BASE;
+    if (studioFiles && studioToken) {
+      prompt += SYSTEM_PROMPT_STUDIO;
+      var summary = buildFilesSummary(studioFiles);
+      if (summary) {
+        prompt += '\n\nCurrent studio workspace structure:\n' + summary;
+      }
     }
-    
-    const data = await response.json();
-    const aiResponse = data.choices[0].message.content;
-    
-    loadingDiv.remove();
-    
-    appendMessage('assistant', aiResponse);
-    
-    history.push({ role: 'assistant', content: aiResponse });
-    saveChatHistory(currentChatId, history);
-    
-  } catch (error) {
-    loadingDiv.remove();
-    appendMessage('assistant', 'Error: ' + error.message);
+    return prompt;
   }
-}
 
-function handleKey(event) {
-  if (event.key === 'Enter' && !event.shiftKey) {
-    event.preventDefault();
-    sendMessage();
+  function buildFilesSummary(files) {
+    var lines = [];
+    function walk(node, depth) {
+      if (!node) return;
+      var indent = '  '.repeat(depth);
+      var info = indent + node.className + ' "' + node.name + '"';
+      if (node.properties) {
+        var props = [];
+        if (node.properties.Source) props.push('has_source(' + node.properties.Source.length + ' chars)');
+        if (node.properties.Size) props.push('Size=' + node.properties.Size);
+        if (node.properties.Position) props.push('Pos=' + node.properties.Position);
+        if (node.properties.Disabled) props.push('Disabled=' + node.properties.Disabled);
+        if (props.length) info += ' [' + props.join(', ') + ']';
+      }
+      lines.push(info);
+      if (node.children && node.children.length > 0 && depth < 5) {
+        node.children.forEach(function(c) { walk(c, depth + 1); });
+      }
+    }
+    Object.keys(files).forEach(function(svcName) {
+      walk(files[svcName], 0);
+    });
+    return lines.slice(0, 400).join('\n');
   }
-}
 
-function autoGrow(element) {
-  element.style.height = 'auto';
-  element.style.height = Math.min(element.scrollHeight, 200) + 'px';
-}
-
-function toggleInputModelDropdown() {
-  const list = document.getElementById('input-model-list');
-  list.style.display = list.style.display === 'none' ? 'block' : 'none';
-}
-
-function selectInputModel(element) {
-  currentModel = element.getAttribute('data-value');
-  document.getElementById('input-model-label').textContent = element.textContent;
-  document.getElementById('input-model-list').style.display = 'none';
-}
-
-function chipSend(prefix) {
-  const input = document.getElementById('user-input');
-  input.value = prefix;
-  input.focus();
-}
-
-function switchMainTab(tab, element) {
-  document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
-  element.classList.add('active');
-  
-  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-  document.getElementById('tab-' + tab).classList.add('active');
-}
-
-function switchStab(element, panel) {
-  document.querySelectorAll('.stab').forEach(el => el.classList.remove('active'));
-  element.classList.add('active');
-  
-  document.querySelectorAll('.spanel').forEach(el => el.classList.remove('active'));
-  document.getElementById('spanel-' + panel).classList.add('active');
-}
-
-function openSettings() {
-  document.getElementById('settings-username').textContent = getCurrentUsername();
-  document.getElementById('deepinfra-key-input').value = getDeepinfraKey();
-  document.getElementById('settings-modal').style.display = 'flex';
-}
-
-function closeSettings() {
-  document.getElementById('settings-modal').style.display = 'none';
-}
-
-function closeSettingsIfBg(event) {
-  if (event.target.id === 'settings-modal') closeSettings();
-}
-
-function saveAISettings() {
-  const key = document.getElementById('deepinfra-key-input').value.trim();
-  if (key) {
-    saveDeepinfraKey(key);
-    alert('Settings saved successfully!');
-    closeSettings();
-  } else {
-    alert('Please enter your DeepInfra API key.');
+  function showPremiumModal() {
+    document.getElementById('premium-modal').style.display = 'flex';
   }
-}
 
-function logout() {
-  localStorage.clear();
-  location.reload();
-}
+  window.closePremiumModal = function () {
+    document.getElementById('premium-modal').style.display = 'none';
+  };
 
-function handleImageAttach(event) {
-  const file = event.target.files[0];
-  if (file) {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const preview = document.getElementById('image-preview-row');
-      const wrap = document.createElement('div');
+  window.closePremiumIfBg = function (e) {
+    if (e.target === document.getElementById('premium-modal')) closePremiumModal();
+  };
+
+  window.toggleStudioPanel = function () {
+    var panel = document.getElementById('studio-panel');
+    if (panel.classList.contains('closed')) {
+      panel.classList.remove('closed');
+    } else {
+      panel.classList.add('closed');
+    }
+  };
+
+  window.openPostGame = function () {
+    document.getElementById('pg-name').value = '';
+    document.getElementById('pg-desc').value = '';
+    document.getElementById('pg-link').value = '';
+    var alertEl = document.getElementById('post-game-alert');
+    alertEl.className = 'post-game-alert';
+    alertEl.textContent = '';
+    document.getElementById('post-game-modal').style.display = 'flex';
+  };
+
+  window.closePostGame = function () {
+    document.getElementById('post-game-modal').style.display = 'none';
+  };
+
+  window.closePostGameIfBg = function (e) {
+    if (e.target === document.getElementById('post-game-modal')) closePostGame();
+  };
+
+  window.submitGame = function () {
+    var name = document.getElementById('pg-name').value.trim();
+    var desc = document.getElementById('pg-desc').value.trim();
+    var link = document.getElementById('pg-link').value.trim();
+    var alertEl = document.getElementById('post-game-alert');
+    alertEl.className = 'post-game-alert';
+    alertEl.textContent = '';
+
+    if (!name) { alertEl.className = 'post-game-alert show'; alertEl.textContent = 'Please enter a game name.'; return; }
+    if (!desc) { alertEl.className = 'post-game-alert show'; alertEl.textContent = 'Please describe your game.'; return; }
+    if (!link) { alertEl.className = 'post-game-alert show'; alertEl.textContent = 'Please enter a game link.'; return; }
+
+    var session = getSession();
+    var game = { id: Date.now(), name: name, desc: desc, link: link, postedBy: session ? session.username : 'Guest' };
+    games.push(game);
+    saveGames(games);
+    renderGames();
+    closePostGame();
+  };
+
+  function renderGames() {
+    var grid = document.getElementById('games-grid');
+    var noGames = document.getElementById('no-games');
+    var existing = grid.querySelectorAll('.game-card');
+    existing.forEach(function(c) { grid.removeChild(c); });
+
+    if (games.length === 0) {
+      if (noGames) noGames.style.display = '';
+      return;
+    }
+    if (noGames) noGames.style.display = 'none';
+
+    var session = getSession();
+    games.forEach(function(g) {
+      var card = document.createElement('div');
+      card.className = 'game-card';
+
+      var title = document.createElement('div');
+      title.className = 'game-card-title';
+      title.textContent = g.name;
+
+      var link = document.createElement('a');
+      link.className = 'game-card-link';
+      link.href = g.link;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = g.link;
+
+      var desc = document.createElement('div');
+      desc.className = 'game-card-desc';
+      desc.textContent = g.desc;
+
+      var poster = document.createElement('div');
+      poster.className = 'game-card-poster';
+      poster.textContent = 'by ' + g.postedBy;
+
+      card.appendChild(title);
+      card.appendChild(link);
+      card.appendChild(desc);
+      card.appendChild(poster);
+
+      if (session && (session.username === g.postedBy || session.role === 'admin')) {
+        var delBtn = document.createElement('button');
+        delBtn.className = 'game-card-delete';
+        delBtn.textContent = 'Delete';
+        delBtn.onclick = (function(gid) {
+          return function() {
+            games = games.filter(function(x) { return x.id !== gid; });
+            saveGames(games);
+            renderGames();
+          };
+        })(g.id);
+        card.appendChild(delBtn);
+      }
+
+      grid.appendChild(card);
+    });
+  }
+
+  function buildChecklistForPrompt(text) {
+    var items = [];
+    var used = {};
+    CHECKLIST_TRIGGERS.forEach(function(t) {
+      if (t.pattern.test(text) && !used[t.label]) {
+        items.push(t.label);
+        used[t.label] = true;
+      }
+    });
+    if (items.length === 0) items.push('Processing your request');
+    items.push('Writing response');
+    return items;
+  }
+
+  function showChecklist(items) {
+    var bar = document.getElementById('checklist-bar');
+    var container = document.getElementById('checklist-items');
+    bar.style.display = 'flex';
+    container.innerHTML = '';
+    items.forEach(function(label, i) {
+      var item = document.createElement('div');
+      item.className = 'checklist-item pending';
+      item.id = 'cl-item-' + i;
+      var dot = document.createElement('span');
+      dot.className = 'cl-dot';
+      var text = document.createElement('span');
+      text.className = 'cl-text';
+      text.textContent = label;
+      item.appendChild(dot);
+      item.appendChild(text);
+      container.appendChild(item);
+    });
+  }
+
+  function tickChecklist(index) {
+    var item = document.getElementById('cl-item-' + index);
+    if (item) {
+      item.classList.remove('pending');
+      item.classList.add('done');
+    }
+  }
+
+  function hideChecklist() {
+    var bar = document.getElementById('checklist-bar');
+    bar.style.display = 'none';
+    document.getElementById('checklist-items').innerHTML = '';
+  }
+
+  function runChecklistAnimation(items, callback) {
+    var i = 0;
+    function tick() {
+      if (i < items.length) {
+        tickChecklist(i);
+        i++;
+        var delay = i < items.length - 1 ? 380 + Math.random() * 280 : 200;
+        setTimeout(tick, delay);
+      } else {
+        if (callback) callback();
+      }
+    }
+    setTimeout(tick, 200);
+  }
+
+  async function dispatchCommandsFromResponse(responseText) {
+    if (!studioToken || !pluginConnected) return;
+    var cmdRegex = /```command\n([\s\S]*?)```/g;
+    var match;
+    while ((match = cmdRegex.exec(responseText)) !== null) {
+      var rawJson = match[1].trim();
+      try {
+        var cmd = JSON.parse(rawJson);
+        await fetch('/api/studio/command', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: studioToken, command: cmd })
+        });
+      } catch(e) {}
+    }
+  }
+
+  async function registerTokenWithServer(token) {
+    var session = getSession();
+    var username = session ? session.username : 'User';
+    try {
+      await fetch('/api/studio/register-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: token, username: username })
+      });
+    } catch(e) {}
+  }
+
+  async function checkStudioStatus() {
+    var token = getStoredToken();
+    if (!token) return;
+    try {
+      var resp = await fetch('/api/studio/status?token=' + token);
+      if (resp.ok) {
+        var data = await resp.json();
+        if (data.connected && !pluginConnected) {
+          pluginConnected = true;
+          studioToken = token;
+          updatePluginStatusUI(true);
+          loadStudioFilesFromServer(token);
+        } else if (!data.connected && pluginConnected) {
+          pluginConnected = false;
+          studioToken = '';
+          updatePluginStatusUI(false);
+        }
+      }
+    } catch(e) {}
+  }
+
+  async function loadStudioFilesFromServer(token) {
+    try {
+      var resp = await fetch('/api/studio/files?token=' + token);
+      if (resp.ok) {
+        var data = await resp.json();
+        if (data.files) {
+          studioFiles = data.files;
+          updateStudioFilesUI(data.files);
+        }
+      }
+    } catch(e) {}
+  }
+
+  function updatePluginStatusUI(isConnected) {
+    var pluginEl = document.getElementById('plugin-connected');
+    var connectBtn = document.getElementById('connect-plugin-btn');
+
+    if (isConnected) {
+      if (pluginEl) pluginEl.style.display = 'flex';
+      if (connectBtn) connectBtn.textContent = 'Disconnect';
+      var studioPanel = document.getElementById('studio-panel');
+      if (studioPanel) {
+        var ncBlock = studioPanel.querySelector('.studio-not-connected');
+        if (ncBlock) ncBlock.style.display = 'none';
+        var connBlock = studioPanel.querySelector('.studio-connected');
+        if (connBlock) connBlock.style.display = 'flex';
+      }
+    } else {
+      if (pluginEl) pluginEl.style.display = 'none';
+      if (connectBtn) connectBtn.textContent = 'Connect plugin';
+    }
+  }
+
+  function updateStudioFilesUI(files) {
+    var body = document.querySelector('.studio-panel-body');
+    if (!body) return;
+    body.innerHTML = '';
+
+    var connected = document.createElement('div');
+    connected.className = 'studio-connected';
+    connected.style.cssText = 'display:flex;flex-direction:column;gap:10px;width:100%';
+
+    var statusRow = document.createElement('div');
+    statusRow.style.cssText = 'display:flex;align-items:center;gap:8px';
+    var dot = document.createElement('div');
+    dot.style.cssText = 'width:8px;height:8px;border-radius:50%;background:#4caf7d;box-shadow:0 0 6px #4caf7d';
+    var statusText = document.createElement('span');
+    statusText.style.cssText = 'font-size:13px;color:#4caf7d;font-weight:500';
+    statusText.textContent = 'Studio Connected';
+    statusRow.appendChild(dot);
+    statusRow.appendChild(statusText);
+
+    var fileCount = document.createElement('div');
+    fileCount.style.cssText = 'font-size:12px;color:#9e9890';
+    fileCount.textContent = Object.keys(files).length + ' services loaded';
+
+    var fileList = document.createElement('div');
+    fileList.style.cssText = 'display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto';
+
+    Object.keys(files).forEach(function(svcName) {
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;justify-content:space-between;font-size:11.5px;color:#5e5a55;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04)';
+      var name = document.createElement('span');
+      name.style.color = '#9e9890';
+      name.textContent = svcName;
+      var count = document.createElement('span');
+      count.textContent = (files[svcName].children ? files[svcName].children.length : 0) + ' children';
+      row.appendChild(name);
+      row.appendChild(count);
+      fileList.appendChild(row);
+    });
+
+    connected.appendChild(statusRow);
+    connected.appendChild(fileCount);
+    connected.appendChild(fileList);
+    body.appendChild(connected);
+  }
+
+  function init() {
+    showApp();
+
+    var pfp = getPfp();
+    if (pfp) {
+      var img = document.getElementById('pfp-img');
+      if (img) { img.src = pfp; img.style.display = 'block'; document.getElementById('pfp-placeholder').style.display = 'none'; }
+    }
+
+    var session = getSession();
+    var unEl = document.getElementById('settings-username');
+    if (unEl) unEl.textContent = session ? session.username : 'Not logged in';
+
+    var tokenEl = document.getElementById('studio-token-display');
+    if (tokenEl) {
+      var existing = getStoredToken();
+      tokenEl.value = existing ? existing : '';
+      tokenEl.placeholder = existing ? 'Token saved' : 'Click Generate to create a token';
+    }
+
+    document.addEventListener('paste', function(e) {
+      var items = e.clipboardData && e.clipboardData.items;
+      if (!items) return;
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          var file = e.clipboardData.items[i].getAsFile();
+          if (file) addImagePreview(file);
+          return;
+        }
+      }
+    });
+
+    document.addEventListener('dragover', function(e) { e.preventDefault(); });
+    document.addEventListener('drop', function(e) {
+      e.preventDefault();
+      var files = e.dataTransfer && e.dataTransfer.files;
+      if (files && files.length > 0) {
+        for (var i = 0; i < files.length; i++) {
+          if (files[i].type.indexOf('image') !== -1) {
+            addImagePreview(files[i]);
+            return;
+          }
+        }
+      }
+    });
+
+    commMessages = getCommMessages();
+    renderCommMessages();
+    games = getGames();
+    renderGames();
+
+    studioStatusPoll = setInterval(checkStudioStatus, 5000);
+  }
+
+  function showApp() {
+    var keyGate = document.getElementById('key-gate');
+    if (keyGate) keyGate.style.display = 'none';
+    var appEl = document.getElementById('app');
+    if (appEl) appEl.style.display = 'flex';
+  }
+
+  window.newChat = function () {
+    history = [];
+    pendingImages = [];
+    lastAiBubble = null;
+    lastAiText = '';
+    canContinue = false;
+    document.getElementById('continue-btn').style.display = 'none';
+    document.getElementById('messages').innerHTML = '';
+    document.getElementById('image-preview-row').innerHTML = '';
+    document.getElementById('welcome').style.display = '';
+    hideChecklist();
+    closeCodePanel();
+  };
+
+  window.switchMainTab = function (tab, btn) {
+    document.querySelectorAll('.nav-tab').forEach(function(b) { b.classList.remove('active'); });
+    if (btn) btn.classList.add('active');
+    document.querySelectorAll('.tab-content').forEach(function(el) { el.classList.remove('active'); });
+    var target = document.getElementById('tab-' + tab);
+    if (target) target.classList.add('active');
+  };
+
+  window.switchStab = function (btn, panel) {
+    document.querySelectorAll('.stab').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    document.querySelectorAll('.spanel').forEach(function(p) { p.classList.remove('active'); });
+    var target = document.getElementById('spanel-' + panel);
+    if (target) target.classList.add('active');
+  };
+
+  window.connectPlugin = function () {
+    if (pluginConnected) {
+      pluginConnected = false;
+      studioToken = '';
+      studioFiles = null;
+      document.getElementById('connect-plugin-btn').textContent = 'Connect plugin';
+      document.getElementById('plugin-connected').style.display = 'none';
+    } else {
+      document.getElementById('connect-plugin-btn').textContent = 'Disconnect';
+      document.getElementById('plugin-connected').style.display = 'flex';
+      pluginConnected = true;
+    }
+  };
+
+  window.chipSend = function (text) {
+    var input = document.getElementById('user-input');
+    input.value = text;
+    input.focus();
+    autoGrow(input);
+  };
+
+  window.handleKey = function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (!generating) sendMessage();
+    }
+  };
+
+  window.autoGrow = function (el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+  };
+
+  window.handleImageAttach = function (e) {
+    var file = e.target.files[0];
+    if (file) addImagePreview(file);
+    e.target.value = '';
+  };
+
+  function addImagePreview(file) {
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      var dataUrl = ev.target.result;
+      pendingImages.push({ dataUrl: dataUrl, type: file.type });
+      var row = document.getElementById('image-preview-row');
+      var wrap = document.createElement('div');
       wrap.className = 'img-thumb-wrap';
-      const img = document.createElement('img');
+      var idx = pendingImages.length - 1;
+      wrap.dataset.idx = idx;
+      var img = document.createElement('img');
       img.className = 'img-thumb';
-      img.src = e.target.result;
-      const btn = document.createElement('button');
-      btn.className = 'img-thumb-remove';
-      btn.textContent = '×';
-      btn.onclick = () => wrap.remove();
+      img.src = dataUrl;
+      var rm = document.createElement('button');
+      rm.className = 'img-thumb-remove';
+      rm.textContent = 'x';
+      rm.onclick = function() {
+        pendingImages.splice(parseInt(wrap.dataset.idx), 1);
+        row.removeChild(wrap);
+        refreshThumbIndexes();
+      };
       wrap.appendChild(img);
-      wrap.appendChild(btn);
-      preview.appendChild(wrap);
+      wrap.appendChild(rm);
+      row.appendChild(wrap);
     };
     reader.readAsDataURL(file);
   }
-}
 
-function handlePfpUpload(event) {
-  const file = event.target.files[0];
-  if (file) {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = document.getElementById('pfp-img');
-      img.src = e.target.result;
+  function refreshThumbIndexes() {
+    document.querySelectorAll('.img-thumb-wrap').forEach(function(w, i) { w.dataset.idx = i; });
+  }
+
+  window.handlePfpUpload = function (e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      var dataUrl = ev.target.result;
+      savePfp(dataUrl);
+      var img = document.getElementById('pfp-img');
+      img.src = dataUrl;
       img.style.display = 'block';
       document.getElementById('pfp-placeholder').style.display = 'none';
-      savePfp(e.target.result);
     };
     reader.readAsDataURL(file);
+  };
+
+  window.toggleTokenVisibility = function () {
+    var inp = document.getElementById('studio-token-display');
+    var btn = document.getElementById('token-show-btn');
+    if (inp.type === 'password') {
+      inp.type = 'text';
+      btn.textContent = 'Hide';
+    } else {
+      inp.type = 'password';
+      btn.textContent = 'Show';
+    }
+  };
+
+  window.copyStudioToken = function () {
+    var token = getStoredToken();
+    if (token) navigator.clipboard.writeText(token);
+  };
+
+  window.regenToken = async function () {
+    var t = generateToken();
+    localStorage.setItem('prysmis_studio_token', t);
+    studioToken = t;
+    var inp = document.getElementById('studio-token-display');
+    if (inp) { inp.value = t; inp.type = 'text'; }
+    var btn = document.getElementById('token-show-btn');
+    if (btn) btn.textContent = 'Hide';
+    await registerTokenWithServer(t);
+    var st = document.getElementById('settings-key-status');
+    if (st) { st.textContent = 'Token generated and registered.'; st.style.color = '#4caf7d'; setTimeout(function() { st.textContent = ''; }, 3000); }
+  };
+
+  window.continueResponse = async function () {
+    if (generating) return;
+    document.getElementById('continue-btn').style.display = 'none';
+    canContinue = false;
+    history.push({ role: 'user', content: 'Continue exactly where you left off. Do not repeat anything, just continue writing from where it was cut off.' });
+    await runAiRequest(null, true);
+  };
+
+  window.sendMessage = async function () {
+    if (generating) return;
+    var input = document.getElementById('user-input');
+    var text = input.value.trim();
+    var images = pendingImages.slice();
+    if (!text && images.length === 0) return;
+
+    document.getElementById('welcome').style.display = 'none';
+    document.getElementById('continue-btn').style.display = 'none';
+    canContinue = false;
+
+    input.value = '';
+    input.style.height = 'auto';
+    pendingImages = [];
+    document.getElementById('image-preview-row').innerHTML = '';
+
+    appendUserMsg(text, images);
+
+    var msgContent = [];
+    images.forEach(function(img) {
+      var b64 = img.dataUrl.split(',')[1];
+      msgContent.push({ type: 'image', source: { type: 'base64', media_type: img.type, data: b64 } });
+    });
+    if (text) msgContent.push({ type: 'text', text: text });
+
+    history.push({ role: 'user', content: msgContent.length === 1 && msgContent[0].type === 'text' ? text : msgContent });
+
+    var checkItems = buildChecklistForPrompt(text);
+    showChecklist(checkItems);
+
+    await runAiRequest(checkItems, false);
+  };
+
+  var DEEPINFRA_MODELS = [
+    { value: 'deepseek-ai/DeepSeek-V3', label: 'DeepSeek V3' },
+    { value: 'meta-llama/Meta-Llama-3.1-70B-Instruct', label: 'Llama 3.1 70B' },
+    { value: 'mistralai/Mistral-7B-Instruct-v0.3', label: 'Mistral 7B' }
+  ];
+
+  function getDeepinfraKey() {
+    return localStorage.getItem('prysmis_deepinfra_key') || '';
   }
-}
 
-function openShareScreen() {
-  const canvas = document.createElement('canvas');
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-  
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#0e0e0e';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  
-  ctx.fillStyle = '#f0ece5';
-  ctx.font = '24px DM Sans';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('Screen Share Active', canvas.width / 2, canvas.height / 2);
-  
-  const frameData = canvas.toDataURL('image/jpeg', 0.8);
-  localStorage.setItem('prysmis_screen_frame', frameData);
-  alert('Screen share initiated!');
-}
+  window.saveDeepinfraKey = function(val) {
+    localStorage.setItem('prysmis_deepinfra_key', val.trim());
+    var st = document.getElementById('deepinfra-key-status');
+    if (st) {
+      st.textContent = val.trim() ? 'API key saved.' : '';
+      st.style.color = '#4caf7d';
+    }
+  };
 
-function connectPlugin() {
-  const token = 'plugin_' + Math.random().toString(36).substr(2, 9);
-  localStorage.setItem('prysmis_plugin_token', token);
-  document.getElementById('studio-token-display').value = token;
-  alert('Plugin token generated and set!');
-}
+  window.toggleDeepinfraKeyVisibility = function() {
+    var inp = document.getElementById('deepinfra-key-input');
+    var btn = document.getElementById('deepinfra-key-toggle');
+    if (!inp) return;
+    if (inp.type === 'password') { inp.type = 'text'; btn.textContent = 'Hide'; }
+    else { inp.type = 'password'; btn.textContent = 'Show'; }
+  };
 
-function toggleTokenVisibility() {
-  const input = document.getElementById('studio-token-display');
-  const btn = document.getElementById('token-show-btn');
-  if (input.type === 'text') {
-    input.type = 'password';
-    btn.textContent = 'Show';
-  } else {
-    input.type = 'text';
-    btn.textContent = 'Hide';
+  function getSelectedModel() {
+    return localStorage.getItem('prysmis_model') || 'deepseek-ai/DeepSeek-V3';
   }
-}
 
-function copyStudioToken() {
-  const input = document.getElementById('studio-token-display');
-  input.select();
-  document.execCommand('copy');
-  alert('Token copied to clipboard!');
-}
+  window.toggleInputModelDropdown = function () {
+    var list = document.getElementById('input-model-list');
+    if (list) list.classList.toggle('open');
+  };
 
-function regenToken() {
-  const token = 'plugin_' + Math.random().toString(36).substr(2, 9);
-  localStorage.setItem('prysmis_plugin_token', token);
-  document.getElementById('studio-token-display').value = token;
-  alert('New token generated!');
-}
+  window.selectInputModel = function (el) {
+    var value = el.dataset.value;
+    var label = el.textContent;
+    localStorage.setItem('prysmis_model', value);
+    var lbl = document.getElementById('input-model-label');
+    if (lbl) lbl.textContent = label;
+    var list = document.getElementById('input-model-list');
+    if (list) list.classList.remove('open');
+  };
 
-function toggleStudioPanel() {
-  const panel = document.getElementById('studio-panel');
-  panel.classList.toggle('closed');
-}
-
-function renderChatHistory() {
-  const list = document.getElementById('chat-history-list');
-  list.innerHTML = '';
-  const chats = getChats();
-  chats.reverse().forEach(chat => {
-    const item = document.createElement('div');
-    item.className = 'chat-history-item';
-    item.textContent = chat.name;
-    item.onclick = () => loadChat(chat.id);
-    list.appendChild(item);
+  document.addEventListener('click', function(e) {
+    var wrap = document.getElementById('input-model-wrap');
+    if (wrap && !wrap.contains(e.target)) {
+      var list = document.getElementById('input-model-list');
+      if (list) list.classList.remove('open');
+    }
   });
-}
 
-function sendCommMessage() {
-  const input = document.getElementById('comm-input');
-  const msg = input.value.trim();
-  if (!msg) return;
-  
-  const msgs = getCommMessages();
-  msgs.push({
-    username: getCurrentUsername(),
-    text: msg,
-    time: new Date().toLocaleTimeString(),
-    isAdmin: false
-  });
-  saveCommMessages(msgs);
-  input.value = '';
-  
-  renderCommMessages();
-}
+  async function runAiRequest(checkItems, isContinue) {
+    generating = true;
+    setStatus('busy');
+    document.getElementById('send-btn').disabled = true;
 
-function commHandleKey(event) {
-  if (event.key === 'Enter' && !event.shiftKey) {
-    event.preventDefault();
-    sendCommMessage();
+    var aiRowBubble;
+    if (isContinue && lastAiBubble) {
+      aiRowBubble = lastAiBubble;
+    } else {
+      aiRowBubble = appendAiMsg(null);
+      lastAiBubble = aiRowBubble;
+      lastAiText = '';
+    }
+
+    if (checkItems) {
+      runChecklistAnimation(checkItems, null);
+    }
+
+    try {
+      var selectedModel = getSelectedModel();
+      var msgHistory = history.slice(-24);
+
+      var apiKey = getDeepinfraKey();
+      if (!apiKey) {
+        aiRowBubble.innerHTML = '<span style="color:#e07755">No API key set. Go to <strong>Settings &rarr; AI Settings</strong> and paste your DeepInfra API key.</span>';
+        generating = false;
+        setStatus('ready');
+        document.getElementById('send-btn').disabled = false;
+        hideChecklist();
+        return;
+      }
+
+      var deepMessages = [{ role: 'system', content: getSystemPrompt() }];
+      msgHistory.forEach(function(m) {
+        if (Array.isArray(m.content)) {
+          var text = m.content.filter(function(p) { return p.type === 'text'; }).map(function(p) { return p.text; }).join('\n');
+          deepMessages.push({ role: m.role, content: text || '' });
+        } else {
+          deepMessages.push({ role: m.role, content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) });
+        }
+      });
+
+      var streamedText = isContinue ? lastAiText : '';
+      var firstChunk = true;
+
+      aiRowBubble.innerHTML = '<div class="thinking"><span></span><span></span><span></span></div>';
+
+      var deepResp = await fetch('https://api.deepinfra.com/v1/openai/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + apiKey
+        },
+        body: JSON.stringify({
+          model: selectedModel,
+          messages: deepMessages,
+          stream: true,
+          max_tokens: 4096,
+          temperature: 0.7
+        })
+      });
+
+      if (!deepResp.ok) {
+        var errData = await deepResp.json().catch(function() { return {}; });
+        throw new Error((errData.error && errData.error.message) || ('DeepInfra error ' + deepResp.status));
+      }
+
+      var reader = deepResp.body.getReader();
+      var decoder = new TextDecoder();
+      var buffer = '';
+
+      while (true) {
+        var readResult = await reader.read();
+        if (readResult.done) break;
+        buffer += decoder.decode(readResult.value, { stream: true });
+        var lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (var li = 0; li < lines.length; li++) {
+          var line = lines[li].trim();
+          if (!line || line === 'data: [DONE]') continue;
+          if (line.startsWith('data: ')) {
+            try {
+              var parsed = JSON.parse(line.slice(6));
+              var delta = parsed.choices && parsed.choices[0] && parsed.choices[0].delta;
+              var chunkText = (delta && delta.content) ? delta.content : '';
+              if (chunkText) {
+                if (firstChunk) {
+                  firstChunk = false;
+                  if (checkItems) { for (var ci = 0; ci < checkItems.length; ci++) tickChecklist(ci); }
+                }
+                streamedText += chunkText;
+                aiRowBubble.innerHTML = renderMarkdown(streamedText, true);
+                scrollBottom();
+              }
+            } catch(parseErr) {}
+          }
+        }
+      }
+
+
+      lastAiText = streamedText;
+
+      if (streamedText) {
+        if (isContinue) {
+          history[history.length - 2] = { role: 'assistant', content: streamedText };
+          history.splice(history.length - 1, 1);
+        } else {
+          history.push({ role: 'assistant', content: streamedText });
+        }
+      }
+
+      if (streamedText && (streamedText.split('```').length % 2 === 0)) {
+        canContinue = true;
+        document.getElementById('continue-btn').style.display = 'flex';
+      } else {
+        canContinue = false;
+        document.getElementById('continue-btn').style.display = 'none';
+      }
+
+      var codeMatch = streamedText.match(/```(?:lua|luau)?\n?([\s\S]*?)```/);
+      if (codeMatch) {
+        currentCode = codeMatch[1].trim();
+        var langMatch = streamedText.match(/```([\w]*)/);
+        var lang = langMatch ? (langMatch[1] || 'lua') : 'lua';
+        if (lang !== 'command') openCodePanel(currentCode, lang);
+      }
+
+      await dispatchCommandsFromResponse(streamedText);
+      hideChecklist();
+
+    } catch (err) {
+      aiRowBubble.innerHTML = '<span style="color:#e05555">Error: ' + esc(err.message || 'Unknown error.') + '</span>';
+      hideChecklist();
+    }
+
+    generating = false;
+    setStatus('ready');
+    document.getElementById('send-btn').disabled = false;
+    document.getElementById('user-input').focus();
+    scrollBottom();
   }
-}
 
-function renderCommMessages() {
-  const container = document.getElementById('comm-messages');
-  container.innerHTML = '';
-  const msgs = getCommMessages();
-  msgs.forEach(msg => {
-    const msgEl = document.createElement('div');
-    msgEl.className = 'comm-msg';
-    msgEl.innerHTML = `
-      <div class="comm-msg-header">
-        <div class="comm-msg-user">${msg.username}</div>
-        <div class="comm-msg-time">${msg.time}</div>
-      </div>
-      <div class="comm-msg-text">${msg.text}</div>
-    `;
-    container.appendChild(msgEl);
-  });
-  container.scrollTop = container.scrollHeight;
-}
-
-function openPostGame() {
-  document.getElementById('post-game-modal').style.display = 'flex';
-}
-
-function closePostGame() {
-  document.getElementById('post-game-modal').style.display = 'none';
-}
-
-function closePostGameIfBg(event) {
-  if (event.target.id === 'post-game-modal') closePostGame();
-}
-
-function submitGame() {
-  const name = document.getElementById('pg-name').value.trim();
-  const desc = document.getElementById('pg-desc').value.trim();
-  const link = document.getElementById('pg-link').value.trim();
-  
-  if (!name || !link) {
-    alert('Please fill in game name and link.');
-    return;
+  function appendUserMsg(text, images) {
+    var msgs = document.getElementById('messages');
+    var row = document.createElement('div');
+    row.className = 'msg-row user';
+    var av = document.createElement('div');
+    av.className = 'msg-avatar';
+    var pfp = getPfp();
+    if (pfp) {
+      var pimg = document.createElement('img');
+      pimg.src = pfp;
+      av.appendChild(pimg);
+    } else {
+      av.textContent = 'U';
+    }
+    var body = document.createElement('div');
+    body.className = 'msg-body';
+    var label = document.createElement('div');
+    label.className = 'msg-label';
+    var session = getSession();
+    label.textContent = session ? session.username : 'You';
+    body.appendChild(label);
+    images.forEach(function(img) {
+      var imgEl = document.createElement('img');
+      imgEl.className = 'msg-image';
+      imgEl.src = img.dataUrl;
+      body.appendChild(imgEl);
+    });
+    if (text) {
+      var t = document.createElement('div');
+      t.className = 'msg-text';
+      t.textContent = text;
+      body.appendChild(t);
+    }
+    row.appendChild(av);
+    row.appendChild(body);
+    msgs.appendChild(row);
+    scrollBottom();
   }
-  
-  const games = getGames();
-  games.push({ name, desc, link, submittedBy: getCurrentUsername(), submittedAt: Date.now() });
-  saveGames(games);
-  
-  document.getElementById('pg-name').value = '';
-  document.getElementById('pg-desc').value = '';
-  document.getElementById('pg-link').value = '';
-  closePostGame();
-  alert('Game submitted successfully!');
-  renderGamesGrid();
-}
 
-function renderGamesGrid() {
-  const grid = document.getElementById('games-grid');
-  const games = getGames();
-  
-  if (games.length === 0) {
-    grid.innerHTML = '<div class="no-games"><div class="no-games-title">Community Projects</div><div class="no-games-sub">Browse and share Roblox projects built with PrysmisAI. Be the first to post yours.</div></div>';
-    return;
+  function appendAiMsg(text) {
+    var msgs = document.getElementById('messages');
+    var row = document.createElement('div');
+    row.className = 'msg-row ai';
+    var av = document.createElement('div');
+    av.className = 'msg-avatar ai-avatar';
+    av.textContent = 'P';
+    var body = document.createElement('div');
+    body.className = 'msg-body';
+    var label = document.createElement('div');
+    label.className = 'msg-label';
+    label.textContent = 'Prysmis';
+    var bubble = document.createElement('div');
+    bubble.className = 'msg-text ai-msg-text';
+    if (text === null) {
+      bubble.innerHTML = '<div class="thinking"><span></span><span></span><span></span></div>';
+    } else {
+      bubble.innerHTML = renderMarkdown(text, true);
+    }
+    body.appendChild(label);
+    body.appendChild(bubble);
+    row.appendChild(av);
+    row.appendChild(body);
+    msgs.appendChild(row);
+    scrollBottom();
+    return bubble;
   }
-  
-  grid.innerHTML = '';
-  games.forEach(game => {
-    const card = document.createElement('div');
-    card.className = 'game-card';
-    card.innerHTML = `
-      <div class="game-card-title">${game.name}</div>
-      <a href="${game.link}" target="_blank" class="game-card-link">${game.link}</a>
-      <div class="game-card-desc">${game.desc}</div>
-    `;
-    grid.appendChild(card);
-  });
-}
 
-function closePremiumIfBg(event) {
-  if (event.target.id === 'premium-modal') closePremiumModal();
-}
-
-function closePremiumModal() {
-  document.getElementById('premium-modal').style.display = 'none';
-}
-
-function copyCode() {
-  const code = document.getElementById('cp-code').textContent;
-  navigator.clipboard.writeText(code);
-  alert('Code copied to clipboard!');
-}
-
-function fixCode() {
-  alert('Code fixing feature coming soon!');
-}
-
-function closeCodePanel() {
-  document.getElementById('code-panel').classList.add('closed');
-}
-
-function acceptChange() {
-  alert('Change accepted!');
-}
-
-function declineChange() {
-  alert('Change declined!');
-}
-
-function continueResponse() {
-  alert('Continue feature coming soon!');
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  const pfp = getPfp();
-  if (pfp) {
-    document.getElementById('pfp-img').src = pfp;
-    document.getElementById('pfp-img').style.display = 'block';
-    document.getElementById('pfp-placeholder').style.display = 'none';
+  function setStatus(state) {
+    var dot = document.getElementById('status-dot');
+    var label = document.getElementById('status-label');
+    dot.className = 'status-dot' + (state !== 'ready' ? ' ' + state : '');
+    label.textContent = state === 'busy' ? 'Thinking' : state === 'error' ? 'Error' : 'Ready';
   }
-  
-  renderChatHistory();
-  renderCommMessages();
-  renderGamesGrid();
-  
-  const token = localStorage.getItem('prysmis_plugin_token');
-  if (token) {
-    document.getElementById('studio-token-display').value = token;
+
+  function scrollBottom() {
+    var area = document.getElementById('chat-area');
+    if (area) area.scrollTop = area.scrollHeight;
   }
-  
-  document.getElementById('app').style.display = 'flex';
-});
+
+  function openCodePanel(code, lang) {
+    document.getElementById('cp-code').textContent = code;
+    document.getElementById('cp-title').textContent = (lang && lang !== 'code' ? lang : 'lua');
+    document.getElementById('code-panel').classList.remove('closed');
+  }
+
+  window.closeCodePanel = function () {
+    document.getElementById('code-panel').classList.add('closed');
+  };
+
+  window.copyCode = function () {
+    var code = document.getElementById('cp-code').textContent;
+    navigator.clipboard.writeText(code).then(function() {
+      var btns = document.querySelectorAll('.cp-btn');
+      if (btns[0]) {
+        var orig = btns[0].textContent;
+        btns[0].textContent = 'Copied!';
+        setTimeout(function() { btns[0].textContent = orig; }, 1500);
+      }
+    });
+  };
+
+  window.fixCode = async function () {
+    var code = document.getElementById('cp-code').textContent;
+    if (!code) return;
+    var input = document.getElementById('user-input');
+    input.value = 'Fix any bugs or errors in this code and return the fully corrected code:\n\n```lua\n' + code + '\n```';
+    autoGrow(input);
+    await sendMessage();
+  };
+
+  window.openSettings = function () {
+    var modal = document.getElementById('settings-modal');
+    if (!modal) return;
+    var session = getSession();
+    var el = document.getElementById('settings-username');
+    if (el) el.textContent = session ? session.username : 'Not logged in';
+    var tokenEl = document.getElementById('studio-token-display');
+    if (tokenEl) {
+      var existing = getStoredToken();
+      tokenEl.value = existing || '';
+      tokenEl.placeholder = existing ? '' : 'Click Generate to create a token';
+    }
+    var keyInp = document.getElementById('deepinfra-key-input');
+    if (keyInp) {
+      var savedKey = getDeepinfraKey();
+      keyInp.value = savedKey;
+      keyInp.type = 'password';
+      var toggleBtn = document.getElementById('deepinfra-key-toggle');
+      if (toggleBtn) toggleBtn.textContent = 'Show';
+    }
+    modal.style.display = 'flex';
+  };
+
+  window.closeSettings = function () {
+    var modal = document.getElementById('settings-modal');
+    if (modal) modal.style.display = 'none';
+  };
+
+  window.closeSettingsIfBg = function (e) {
+    if (e.target === document.getElementById('settings-modal')) closeSettings();
+  };
+
+  window.logout = function () {
+    localStorage.removeItem('prysmis_session');
+    window.location.href = '/auth';
+  };
+
+  window.commHandleKey = function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendCommMessage();
+    }
+  };
+
+  window.sendCommMessage = function () {
+    var input = document.getElementById('comm-input');
+    var text = input.value.trim();
+    if (!text) return;
+    var session = getSession();
+    var username = session ? session.username : 'Guest';
+    var role = session ? session.role : 'user';
+    var now = new Date();
+    var time = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+    var msg = { id: Date.now(), username: username, role: role, text: text, time: time };
+    commMessages.push(msg);
+    saveCommMessages(commMessages);
+    renderCommMessages();
+    input.value = '';
+    input.style.height = 'auto';
+    var area = document.getElementById('comm-messages');
+    if (area) area.scrollTop = area.scrollHeight;
+  };
+
+  function renderCommMessages() {
+    var area = document.getElementById('comm-messages');
+    if (!area) return;
+    area.innerHTML = '';
+    var session = getSession();
+    commMessages.forEach(function(msg) {
+      var div = document.createElement('div');
+      div.className = 'comm-msg';
+      var header = document.createElement('div');
+      header.className = 'comm-msg-header';
+      var uname = document.createElement('span');
+      uname.className = 'comm-msg-user';
+      uname.textContent = msg.username;
+      header.appendChild(uname);
+      if (msg.role === 'admin') {
+        var badge = document.createElement('span');
+        badge.className = 'comm-msg-admin';
+        badge.textContent = 'ADMIN';
+        header.appendChild(badge);
+      }
+      var timeEl = document.createElement('span');
+      timeEl.className = 'comm-msg-time';
+      timeEl.textContent = msg.time;
+      header.appendChild(timeEl);
+      var textEl = document.createElement('div');
+      textEl.className = 'comm-msg-text';
+      textEl.textContent = msg.text;
+      var actions = document.createElement('div');
+      actions.className = 'comm-msg-actions';
+      var replyBtn = document.createElement('button');
+      replyBtn.className = 'comm-msg-btn';
+      replyBtn.textContent = 'Reply';
+      replyBtn.onclick = function() {
+        var inp = document.getElementById('comm-input');
+        inp.value = '@' + msg.username + ' ';
+        inp.focus();
+      };
+      actions.appendChild(replyBtn);
+      if (session && (session.username === msg.username || session.role === 'admin')) {
+        var editBtn = document.createElement('button');
+        editBtn.className = 'comm-msg-btn';
+        editBtn.textContent = 'Edit';
+        editBtn.onclick = function() {
+          var newText = prompt('Edit message:', msg.text);
+          if (newText && newText.trim()) {
+            msg.text = newText.trim();
+            saveCommMessages(commMessages);
+            renderCommMessages();
+          }
+        };
+        var delBtn = document.createElement('button');
+        delBtn.className = 'comm-msg-btn';
+        delBtn.textContent = 'Delete';
+        delBtn.onclick = function() {
+          commMessages = commMessages.filter(function(m) { return m.id !== msg.id; });
+          saveCommMessages(commMessages);
+          renderCommMessages();
+        };
+        actions.appendChild(editBtn);
+        actions.appendChild(delBtn);
+      }
+      div.appendChild(header);
+      div.appendChild(textEl);
+      div.appendChild(actions);
+      area.appendChild(div);
+    });
+  }
+
+  window.openInPanel = function (btn) {
+    var pre = btn.closest('pre');
+    if (!pre) return;
+    var code = pre.querySelector('code');
+    if (code) {
+      currentCode = code.textContent;
+      openCodePanel(currentCode, 'lua');
+    }
+  };
+
+  window.copyInlineCode = function (btn) {
+    var pre = btn.closest('pre');
+    if (!pre) return;
+    var code = pre.querySelector('code');
+    if (!code) return;
+    navigator.clipboard.writeText(code.textContent).then(function() {
+      var orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(function() { btn.textContent = orig; }, 1400);
+    });
+  };
+
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function renderMarkdown(text, addOpenBtn) {
+    var t = esc(text);
+
+    t = t.replace(/```command\n?([\s\S]*?)```/g, function(_, json) {
+      var decoded = json.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"');
+      return '<div class="command-block"><div class="command-block-header"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg><span>Studio Command</span></div><pre class="command-json"><code>' + esc(decoded.trim()) + '</code></pre></div>';
+    });
+
+    t = t.replace(/```([\w]*)\n?([\s\S]*?)```/g, function(_, lang, code) {
+      var decoded = code.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"');
+      var langLabel = lang || 'lua';
+      var openBtn = addOpenBtn ? '<button class="pre-open-btn" onclick="openInPanel(this)">Open in panel</button>' : '';
+      var copyBtn = '<button class="pre-copy-btn" onclick="copyInlineCode(this)">Copy code</button>';
+      var header = '<div class="code-block-header"><span class="code-block-lang">' + esc(langLabel) + '</span><div class="code-block-actions">' + copyBtn + openBtn + '</div></div>';
+      return '<pre class="code-block">' + header + '<code>' + esc(decoded.trim()) + '</code></pre>';
+    });
+
+    t = t.replace(/`([^`\n]+)`/g, '<code class="inline-code">$1</code>');
+    t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    t = t.replace(/(?<!\w)\*(.+?)\*(?!\w)/g, '<em>$1</em>');
+    t = t.replace(/^### (.+)$/gm, '<p class="md-h3">$1</p>');
+    t = t.replace(/^## (.+)$/gm, '<p class="md-h2">$1</p>');
+    t = t.replace(/^# (.+)$/gm, '<p class="md-h1">$1</p>');
+    t = t.replace(/^\s*[-*] (.+)$/gm, '<li>$1</li>');
+    t = t.replace(/(<li>[\s\S]*?<\/li>\n?)+/g, '<ul>$&</ul>');
+    t = t.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+    t = t.replace(/\n\n/g, '</p><p>');
+    t = t.replace(/\n/g, '<br>');
+    return '<p>' + t + '</p>';
+  }
+
+  var pendingChangeCode = null;
+
+  window.openShareScreen = function() {
+    var token = getStoredToken();
+    if (!token) {
+      alert('Generate a Studio token first in Settings > Studio.');
+      return;
+    }
+    var url = '/screenshare?token=' + encodeURIComponent(token);
+    window.open(url, 'PrysmisAI_ScreenShare', 'width=1100,height=720,toolbar=no,menubar=no,scrollbars=no');
+  };
+
+  window.acceptChange = function() {
+    if (!pendingChangeCode || !studioToken) return;
+    fetch('/api/studio/command', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: studioToken, command: { type: 'execute', code: pendingChangeCode } })
+    }).then(function() {
+      pendingChangeCode = null;
+      var bar = document.getElementById('change-bar');
+      if (bar) bar.style.display = 'none';
+    }).catch(function() {});
+  };
+
+  window.declineChange = function() {
+    pendingChangeCode = null;
+    var bar = document.getElementById('change-bar');
+    if (bar) bar.style.display = 'none';
+  };
+
+  window.showPendingChange = function(code) {
+    pendingChangeCode = code;
+    var bar = document.getElementById('change-bar');
+    if (bar) bar.style.display = 'flex';
+  };
+
+  init();
+})();
