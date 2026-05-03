@@ -11,24 +11,73 @@ const studioFiles = new Map();
 const pendingCommands = new Map();
 const adminCodes = new Map();
 
-let ollamaModel = null;
-
-async function getModel() {
-  if (ollamaModel) return ollamaModel;
-  const { ChatOllama } = await import('@langchain/ollama');
-  ollamaModel = new ChatOllama({
-    baseUrl: process.env.OLLAMA_HOST || 'http://localhost:11434',
-    model: 'ChatGPT-5',
-    streaming: true,
-    temperature: 0.7,
-    numCtx: 8192,
-  });
-  return ollamaModel;
+function getDeepinfraKey(reqBody) {
+  return (reqBody && reqBody.apiKey) || process.env.DEEPINFRA_API_KEY || '';
 }
+
+async function deepinfraStream(apiKey, model, messages, res) {
+  const response = await fetch('https://api.deepinfra.com/v1/openai/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + apiKey
+    },
+    body: JSON.stringify({ model, messages, stream: true, max_tokens: 4096, temperature: 0.7 })
+  });
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '');
+    throw new Error('DeepInfra error ' + response.status + ': ' + errText.slice(0, 200));
+  }
+  return response;
+}
+
+async function deepinfraComplete(apiKey, model, messages) {
+  const response = await fetch('https://api.deepinfra.com/v1/openai/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + apiKey
+    },
+    body: JSON.stringify({ model, messages, stream: false, max_tokens: 4096, temperature: 0.7 })
+  });
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '');
+    throw new Error('DeepInfra error ' + response.status + ': ' + errText.slice(0, 200));
+  }
+  const data = await response.json();
+  return data.choices[0].message.content || '';
+}
+
+async function streamDeepinfraToRes(apiKey, model, messages, res) {
+  const deepResp = await deepinfraStream(apiKey, model, messages, res);
+  const reader = deepResp.body;
+  let buffer = '';
+  for await (const chunk of reader) {
+    buffer += Buffer.isBuffer(chunk) ? chunk.toString() : chunk;
+    const lines = buffer.split('\n');
+    buffer = lines.pop();
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed === 'data: [DONE]') continue;
+      if (trimmed.startsWith('data: ')) {
+        try {
+          const parsed = JSON.parse(trimmed.slice(6));
+          const delta = parsed.choices && parsed.choices[0] && parsed.choices[0].delta;
+          const text = (delta && delta.content) ? delta.content : '';
+          if (text) res.write('data: ' + JSON.stringify({ text }) + '\n\n');
+        } catch(e) {}
+      }
+    }
+  }
+  res.write('data: [DONE]\n\n');
+  res.end();
+}
+
 
 app.use('/aichat', express.static(path.join(__dirname, 'aichat')));
 app.use('/auth', express.static(path.join(__dirname, 'auth')));
 app.use('/API', express.static(path.join(__dirname, 'API')));
+app.use('/screenshare', express.static(path.join(__dirname, 'screenshare')));
 app.use(express.static(path.join(__dirname)));
 
 app.get('/', function(req, res) {
@@ -48,9 +97,17 @@ app.get('/API', function(req, res) {
 });
 
 app.post('/api/chat', async function(req, res) {
-  const { messages, system } = req.body;
+  const { messages, system, apiKey: bodyKey } = req.body;
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'Missing messages' });
+  }
+
+  const apiKey = bodyKey || process.env.DEEPINFRA_API_KEY || '';
+  if (!apiKey) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.write('data: ' + JSON.stringify({ error: 'No DeepInfra API key configured.' }) + '\n\n');
+    res.write('data: [DONE]\n\n');
+    return res.end();
   }
 
   res.setHeader('Content-Type', 'text/event-stream');
@@ -58,48 +115,20 @@ app.post('/api/chat', async function(req, res) {
   res.setHeader('Connection', 'keep-alive');
 
   try {
-    const { HumanMessage, AIMessage, SystemMessage } = await import('@langchain/core/messages');
-    const model = await getModel();
-
-    const langchainMessages = [];
-    if (system) langchainMessages.push(new SystemMessage(system));
-
+    const deepMessages = [];
+    if (system) deepMessages.push({ role: 'system', content: system });
     for (const msg of messages) {
-      if (msg.role === 'user') {
-        if (Array.isArray(msg.content)) {
-          const textParts = msg.content.filter(p => p.type === 'text').map(p => p.text).join('\n');
-          const imgParts = msg.content.filter(p => p.type === 'image');
-          if (imgParts.length > 0) {
-            langchainMessages.push(new HumanMessage({
-              content: [
-                ...imgParts.map(p => ({
-                  type: 'image_url',
-                  image_url: { url: 'data:' + p.source.media_type + ';base64,' + p.source.data }
-                })),
-                { type: 'text', text: textParts || 'Analyze this image.' }
-              ]
-            }));
-          } else {
-            langchainMessages.push(new HumanMessage(textParts));
-          }
-        } else {
-          langchainMessages.push(new HumanMessage(msg.content));
-        }
-      } else if (msg.role === 'assistant') {
-        langchainMessages.push(new AIMessage(typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)));
+      if (Array.isArray(msg.content)) {
+        const text = msg.content.filter(p => p.type === 'text').map(p => p.text).join('\n');
+        deepMessages.push({ role: msg.role, content: text || '' });
+      } else {
+        deepMessages.push({ role: msg.role, content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content) });
       }
     }
-
-    const stream = await model.stream(langchainMessages);
-    for await (const chunk of stream) {
-      const text = typeof chunk.content === 'string' ? chunk.content : '';
-      if (text) res.write('data: ' + JSON.stringify({ text }) + '\n\n');
-    }
-
-    res.write('data: [DONE]\n\n');
-    res.end();
+    const model = req.body.model || 'deepseek-ai/DeepSeek-V3';
+    await streamDeepinfraToRes(apiKey, model, deepMessages, res);
   } catch (err) {
-    res.write('data: ' + JSON.stringify({ error: err.message || 'Ollama error' }) + '\n\n');
+    res.write('data: ' + JSON.stringify({ error: err.message || 'AI error' }) + '\n\n');
     res.write('data: [DONE]\n\n');
     res.end();
   }
@@ -217,15 +246,12 @@ app.post('/api/auth/login', function(req, res) {
 app.post('/api/studio/connect', function(req, res) {
   const { token } = req.body;
   if (!token) return res.status(400).json({ success: false, error: 'No token provided' });
-  let session = studioSessions.get(token);
-  if (!session) {
-    session = { username: 'StudioUser', createdAt: Date.now(), pluginConnected: false };
-    studioSessions.set(token, session);
-  }
+  const session = studioSessions.get(token);
+  if (!session) return res.status(401).json({ success: false, error: 'Invalid token' });
   session.connectedAt = Date.now();
   session.pluginConnected = true;
   pendingCommands.set(token, []);
-  return res.json({ success: true, username: session.username, model: process.env.OLLAMA_MODEL || 'ChatGPT-5' });
+  return res.json({ success: true, username: session.username, model: process.env.OLLAMA_MODEL || 'llama3.2-vision' });
 });
 
 app.post('/api/studio/files', function(req, res) {
@@ -288,7 +314,6 @@ app.get('/api/studio/status', function(req, res) {
   return res.json({ connected: session.pluginConnected, username: session.username });
 });
 
-app.use('/screenshare', express.static(path.join(__dirname, 'screenshare')));
 app.get('/screenshare', function(req, res) {
   res.sendFile(path.join(__dirname, 'screenshare', 'index.html'));
 });
@@ -299,21 +324,16 @@ app.post('/api/studio/animate', async function(req, res) {
   const session = studioSessions.get(token);
   if (!session) return res.status(401).json({ success: false, error: 'Invalid token' });
 
+  const animApiKey = req.body.apiKey || process.env.DEEPINFRA_API_KEY || '';
+  if (!animApiKey) return res.json({ success: false, error: 'No DeepInfra API key configured.' });
   try {
-    const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
-    const model = await getModel();
-    const systemPrompt = `You are an elite Roblox Lua animation engineer. You write buttery-smooth, visually stunning, professional-grade animations using TweenService. Rules: use EasingStyle.Quint or EasingStyle.Sine with EasingDirection.InOut for professional easing. Layer multiple tweens for complex motion. Use RepeatCount=-1 and Reverses=true for seamless loops. Always access instances safely with game.Workspace. Return ONLY raw executable Lua code. No markdown. No code fences. No comments. No explanation.`;
+    const systemPrompt = 'You are an elite Roblox Lua animation engineer. You write buttery-smooth, visually stunning, professional-grade animations using TweenService. Rules: use EasingStyle.Quint or EasingStyle.Sine with EasingDirection.InOut for professional easing. Layer multiple tweens for complex motion. Use RepeatCount=-1 and Reverses=true for seamless loops. Always access instances safely with game.Workspace. Return ONLY raw executable Lua code. No markdown. No code fences. No comments. No explanation.';
     const msgs = [
-      new SystemMessage(systemPrompt),
-      new HumanMessage(`Create this Roblox Studio animation: ${prompt}. Make it look professional, smooth, and visually impressive. Use TweenService. Access target parts from game.Workspace. Ensure it runs correctly in a plugin context.`)
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: `Create this Roblox Studio animation: ${prompt}. Make it look professional, smooth, and visually impressive. Use TweenService. Access target parts from game.Workspace. Ensure it runs correctly in a plugin context.` }
     ];
-
-    let code = '';
-    const stream = await model.stream(msgs);
-    for await (const chunk of stream) {
-      code += typeof chunk.content === 'string' ? chunk.content : '';
-    }
-    code = code.replace(/```lua\n?/gi, '').replace(/```\n?/g, '').trim();
+    let code = await deepinfraComplete(animApiKey, 'deepseek-ai/DeepSeek-V3', msgs);
+    code = code.replace(/```lua[\n]?/gi, '').replace(/```[\n]?/g, '').trim();
     return res.json({ success: true, code });
   } catch(err) {
     return res.json({ success: false, error: err.message || 'AI error' });
@@ -347,54 +367,30 @@ app.post('/api/studio/screen-chat', async function(req, res) {
   const session = studioSessions.get(token);
   if (!session) return res.status(401).json({ success: false, error: 'Invalid token' });
 
+  const chatApiKey = req.body.apiKey || process.env.DEEPINFRA_API_KEY || '';
+  if (!chatApiKey) return res.json({ success: false, error: 'No DeepInfra API key configured.' });
   try {
-    const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
-    let model;
-    try {
-      model = await getModel();
-    } catch(modelErr) {
-      return res.status(503).json({ success: false, error: 'AI service unavailable. Please try again.' });
-    }
-
-    const systemPrompt = `You are PrysmisAI, an expert Roblox Studio AI assistant. You can see the user's screen. When suggesting Lua code changes, always wrap the code in a JSON block at the END of your response like this: PRYSMIS_CODE_START{"code":"-- your lua code here"}PRYSMIS_CODE_END. Only include this block if you have actual code to apply. Keep your response helpful and concise.`;
-
-    const contentParts = [];
-    if (frame && frame.length > 0) {
+    const systemPrompt = 'You are PrysmisAI, an expert Roblox Studio AI assistant. You can see the user screen. When suggesting Lua code changes, always wrap code at the END of your response like this: PRYSMIS_CODE_START{"code":"-- lua here"}PRYSMIS_CODE_END. Only include this block if you have actual code to apply. Keep your response helpful and concise.';
+    const userContent = [];
+    if (frame) {
       const base64Data = frame.replace(/^data:image\/[a-z]+;base64,/, '');
-      if (base64Data.length > 100) {
-        contentParts.push({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + base64Data } });
-      }
+      userContent.push({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + base64Data } });
     }
-    contentParts.push({ type: 'text', text: message });
-
+    userContent.push({ type: 'text', text: message });
     const msgs = [
-      new SystemMessage(systemPrompt),
-      new HumanMessage({ content: contentParts })
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userContent }
     ];
-
-    let fullResponse = '';
-    try {
-      const stream = await model.stream(msgs);
-      for await (const chunk of stream) {
-        fullResponse += typeof chunk.content === 'string' ? chunk.content : '';
-      }
-    } catch(streamErr) {
-      return res.status(503).json({ success: false, error: 'AI response failed. Please try again.' });
-    }
-
+    let fullResponse = await deepinfraComplete(chatApiKey, 'deepseek-ai/DeepSeek-V3', msgs);
     let code = null;
-    const codeMatch = fullResponse.match(/PRYSMIS_CODE_START(\{[\s\S]*?\})PRYSMIS_CODE_END/);
+    const codeMatch = fullResponse.match(/PRYSMIS_CODE_START({.*?})PRYSMIS_CODE_END/s);
     if (codeMatch) {
-      try {
-        const parsed = JSON.parse(codeMatch[1]);
-        code = parsed.code || null;
-      } catch(e) {}
+      try { const parsed = JSON.parse(codeMatch[1]); code = parsed.code || null; } catch(e) {}
     }
-
-    const displayText = fullResponse.replace(/PRYSMIS_CODE_START[\s\S]*?PRYSMIS_CODE_END/, '').trim();
+    const displayText = fullResponse.replace(/PRYSMIS_CODE_START.*?PRYSMIS_CODE_END/s, '').trim();
     return res.json({ success: true, text: displayText, code });
   } catch(err) {
-    return res.status(500).json({ success: false, error: 'Server error. Please try again.' });
+    return res.json({ success: false, error: err.message || 'AI error' });
   }
 });
 
