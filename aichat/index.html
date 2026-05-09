@@ -9,48 +9,54 @@
     .btn-save-settings {
       margin-top: 20px;
       padding: 12px 32px;
-      background: linear-gradient(145deg, #d4784e, #e8834a);
+      background: linear-gradient(135deg, #d4784e 0%, #f09060 100%);
       color: #fff;
       border: none;
       border-radius: 12px;
       font-size: 14px;
       font-weight: 600;
-      letter-spacing: 0.02em;
+      letter-spacing: 0.03em;
       cursor: pointer;
-      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-      box-shadow: 0 4px 12px rgba(212, 120, 78, 0.2);
+      transition: all 0.3s cubic-bezier(0.23, 1, 0.32, 1);
+      box-shadow: 0 4px 15px rgba(212, 120, 78, 0.3);
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 8px;
+      text-transform: uppercase;
     }
     .btn-save-settings:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 8px 20px rgba(212, 120, 78, 0.35);
+      transform: translateY(-2px) scale(1.02);
+      box-shadow: 0 8px 25px rgba(212, 120, 78, 0.45);
       filter: brightness(1.1);
     }
     .btn-save-settings:active {
-      transform: translateY(0);
+      transform: translateY(0) scale(0.98);
     }
     .quota-box {
       margin-top: 15px;
-      padding: 12px;
-      background: rgba(224, 85, 85, 0.08);
-      border: 1px solid rgba(224, 85, 85, 0.2);
-      border-radius: 10px;
+      padding: 14px;
+      background: rgba(224, 85, 85, 0.1);
+      border: 1px solid rgba(224, 85, 85, 0.3);
+      border-radius: 12px;
       display: none;
+      animation: fadeIn 0.3s ease;
     }
     .quota-text {
-      color: #f08080;
-      font-size: 12px;
+      color: #ff8080;
+      font-size: 13px;
       line-height: 1.5;
+      font-weight: 500;
     }
     .setting-sub-success {
       color: #4caf7d;
-      font-size: 12px;
-      margin-top: 10px;
-      font-weight: 500;
+      font-size: 13px;
+      margin-top: 12px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
   </style>
 </head>
 <body>
@@ -95,7 +101,7 @@
       <div id="chat-area">
         <div id="welcome" class="welcome">
           <h1 class="welcome-title">What can I help you build?</h1>
-          <p class="welcome-sub">Powered by Gemini 3 — professional Roblox generation.</p>
+          <p class="welcome-sub">Powered by Gemini 3 — The fastest professional Roblox generator.</p>
           <div class="quick-chips">
             <button class="chip" onclick="chipSend('I need help building a map')">Building a map</button>
             <button class="chip" onclick="chipSend('Make me a VFX of ')">Make me a VFX</button>
@@ -170,7 +176,7 @@
               <button class="btn-save-settings" onclick="saveGeminiSettings()">Save Settings</button>
               <div id="gemini-key-status" class="setting-sub-success"></div>
               <div id="quota-box" class="quota-box">
-                <div class="quota-text">Quota or API error detected. Ensure your Gemini API Key is valid and billing limits aren't exceeded.</div>
+                <div class="quota-text">Invalid Key or Quota Limit Hit. Verify your API Key in Google AI Studio and ensure billing is active or free tier is available.</div>
               </div>
             </div>
           </div>
