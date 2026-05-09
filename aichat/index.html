@@ -54,7 +54,7 @@
       <div id="chat-area">
         <div id="welcome" class="welcome">
           <h1 class="welcome-title">What can I help you build?</h1>
-          <p class="welcome-sub">Powered by Gemini Pro — expert scripts and visual analysis.</p>
+          <p class="welcome-sub">Powered by Gemini 3 — advanced Roblox generation and reasoning.</p>
           <div class="quick-chips">
             <button class="chip" onclick="chipSend('I need help building a map that does ')">I need help building a map</button>
             <button class="chip" onclick="chipSend('Make me an advanced startup loading screen that is ')">Startup loading screen</button>
@@ -63,7 +63,7 @@
         </div>
         <div id="messages"></div>
       </div>
-      
+
       <div id="change-bar" class="change-bar" style="display:none">
         <div class="change-bar-label">AI suggested a change</div>
         <button class="change-accept-btn" onclick="acceptChange()">Accept Change</button>
@@ -72,6 +72,19 @@
 
       <div id="input-area">
         <div id="image-preview-row" class="image-preview-row"></div>
+        
+        <div class="input-model-row">
+          <div class="input-model-wrap" id="input-model-wrap">
+            <button class="input-model-btn" id="input-model-btn" onclick="toggleInputModelDropdown()">
+              <span id="input-model-label">Gemini 3</span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg>
+            </button>
+            <div class="input-model-list" id="input-model-list">
+              <div class="input-model-option" data-value="gemini-1.5-pro" onclick="selectInputModel(this)">Gemini 3</div>
+            </div>
+          </div>
+        </div>
+
         <div class="input-box">
           <button class="attach-btn" onclick="document.getElementById('file-input').click()">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
@@ -165,10 +178,10 @@
           <div class="setting-group">
             <label>Enter in your gemini api key:</label>
             <div class="ai-key-wrap">
-              <input type="password" id="gemini-key-input" placeholder="Enter your Gemini API key..." autocomplete="off">
+              <input type="password" id="gemini-key-input" placeholder="Paste your Gemini API key..." autocomplete="off">
               <button class="setting-btn" id="gemini-key-toggle" onclick="toggleGeminiKeyVisibility()">Show</button>
             </div>
-            <p class="pfp-hint">Your key is stored locally and used to power Gemini 1.5 Pro.</p>
+            <p class="pfp-hint">Get your key from Google AI Studio. Used for Gemini 3 Pro model.</p>
             <button class="auth-btn" style="margin-top:10px; width:fit-content; padding: 10px 24px;" onclick="saveGeminiSettings()">Save Settings</button>
             <div class="setting-sub" id="gemini-key-status"></div>
           </div>
