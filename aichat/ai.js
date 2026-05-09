@@ -33,9 +33,8 @@
     const key = document.getElementById('gemini-key-input').value.trim();
     localStorage.setItem('prysmis_gemini_key', key);
     const status = document.getElementById('gemini-key-status');
-    document.getElementById('quota-warning').style.display = 'none';
-    status.textContent = "Settings Saved!";
-    status.style.color = "#4caf7d";
+    document.getElementById('quota-box').style.display = 'none';
+    status.textContent = "✓ Settings Saved Successfully";
     setTimeout(() => status.textContent = "", 3000);
   };
 
@@ -65,7 +64,7 @@
     generating = true;
     setStatus('busy');
     const bubble = appendAiMsg(null);
-    const warning = document.getElementById('quota-warning');
+    const quotaBox = document.getElementById('quota-box');
     
     try {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:streamGenerateContent?key=${apiKey}`, {
@@ -73,21 +72,13 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: history,
-          system_instruction: { parts: [{ text: "You are PrysmisAI, an elite Roblox developer. Write production-ready code blocks." }] }
+          system_instruction: { parts: [{ text: "You are PrysmisAI, an elite Roblox developer. Write production-ready code blocks. Use Luau." }] }
         })
       });
 
-      if (response.status === 429) {
-        bubble.innerHTML = "Quota exceeded. Please wait a moment or check your API limits.";
-        warning.style.display = 'block';
-        generating = false;
-        setStatus('ready');
-        return;
-      }
-
       if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error?.message || "API Error");
+        const errorData = await response.json();
+        throw new Error(errorData.error?.message || `HTTP ${response.status}`);
       }
 
       const reader = response.body.getReader();
@@ -99,19 +90,20 @@
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value);
-        const parts = chunk.split('}\n{');
         
-        for (let i = 0; i < parts.length; i++) {
-            let p = parts[i];
-            if (parts.length > 1) {
+        const jsonChunks = chunk.split('}\r\n{').map((part, i, arr) => {
+            let p = part.trim();
+            if (arr.length > 1) {
                 if (i === 0) p = p + '}';
-                else if (i === parts.length - 1) p = '{' + p;
+                else if (i === arr.length - 1) p = '{' + p;
                 else p = '{' + p + '}';
             }
-            
-            const clean = p.replace(/^\[/, '').replace(/\]$/, '').trim();
-            if (!clean || clean === ',') continue;
+            return p;
+        });
 
+        for (const raw of jsonChunks) {
+            const clean = raw.replace(/^\[/, '').replace(/\]$/, '').trim();
+            if (!clean || clean === ',') continue;
             try {
                 const json = JSON.parse(clean);
                 const t = json.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -124,9 +116,12 @@
         }
       }
       history.push({ role: 'assistant', parts: [{ text: fullText }] });
+      quotaBox.style.display = 'none';
     } catch (e) { 
         bubble.innerHTML = "Error: " + e.message;
-        if (e.message.includes("403") || e.message.includes("key")) warning.style.display = 'block';
+        if (e.message.includes("429") || e.message.includes("403") || e.message.includes("404")) {
+            quotaBox.style.display = 'block';
+        }
     }
     generating = false;
     setStatus('ready');
@@ -146,7 +141,7 @@
     d.className = 'msg-row ai';
     const b = document.createElement('div');
     b.className = 'msg-text ai-msg-text';
-    b.innerHTML = t === null ? 'Thinking...' : t;
+    b.innerHTML = t === null ? '<div class="thinking"><span></span><span></span><span></span></div>' : t;
     d.innerHTML = `<div class="msg-avatar ai-avatar">P</div>`;
     const body = document.createElement('div'); body.className='msg-body'; body.appendChild(b);
     d.appendChild(body); m.appendChild(d);
