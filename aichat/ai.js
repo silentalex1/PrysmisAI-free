@@ -4,13 +4,19 @@
   var pendingImages = [];
   var pluginConnected = false;
   var studioToken = '';
-  var lastAiBubble = null;
-  var lastAiText = '';
 
   function getSession() { return JSON.parse(localStorage.getItem('prysmis_session') || 'null'); }
   function getGeminiKey() { return localStorage.getItem('prysmis_gemini_key') || ''; }
   function getStoredToken() { return localStorage.getItem('prysmis_studio_token') || ''; }
-  function getPfp() { return localStorage.getItem('prysmis_pfp') || ''; }
+
+  window.toggleInputModelDropdown = function() {
+    document.getElementById('input-model-list').classList.toggle('open');
+  };
+
+  window.selectInputModel = function(el) {
+    document.getElementById('input-model-label').textContent = el.textContent;
+    document.getElementById('input-model-list').classList.remove('open');
+  };
 
   window.toggleGeminiKeyVisibility = function() {
     const inp = document.getElementById('gemini-key-input');
@@ -23,22 +29,24 @@
     const val = document.getElementById('gemini-key-input').value.trim();
     localStorage.setItem('prysmis_gemini_key', val);
     const st = document.getElementById('gemini-key-status');
-    st.textContent = 'Settings saved successfully.';
+    st.textContent = 'Settings saved.';
     st.style.color = '#4caf7d';
     setTimeout(() => { st.textContent = ''; }, 3000);
+  };
+
+  window.logout = function() {
+    localStorage.removeItem('prysmis_session');
+    window.location.href = '/auth';
   };
 
   window.sendMessage = async function () {
     if (generating) return;
     const input = document.getElementById('user-input');
     const text = input.value.trim();
-    if (!text && pendingImages.length === 0) return;
-
     const apiKey = getGeminiKey();
-    if (!apiKey) {
-      alert('Please enter your Gemini API key in Settings.');
-      return;
-    }
+
+    if (!apiKey) { alert('Enter Gemini API key in Settings.'); return; }
+    if (!text && pendingImages.length === 0) return;
 
     document.getElementById('welcome').style.display = 'none';
     const images = [...pendingImages];
@@ -48,10 +56,7 @@
     
     appendUserMsg(text, images);
     
-    const userParts = [];
-    for (const img of images) {
-      userParts.push({ inline_data: { mime_type: img.type, data: img.dataUrl.split(',')[1] } });
-    }
+    const userParts = images.map(img => ({ inline_data: { mime_type: img.type, data: img.dataUrl.split(',')[1] } }));
     userParts.push({ text: text });
     history.push({ role: 'user', parts: userParts });
 
@@ -60,6 +65,7 @@
 
   async function runAiRequest() {
     generating = true;
+    setStatus('busy');
     const bubble = appendAiMsg(null);
     const apiKey = getGeminiKey();
     
@@ -74,7 +80,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents,
-          system_instruction: { parts: [{ text: "You are PrysmisAI, an elite Roblox developer. Always provide complete, production-ready Luau code." }] }
+          system_instruction: { parts: [{ text: "You are PrysmisAI. Elite Roblox generator. Return code in blocks." }] }
         })
       });
 
@@ -89,9 +95,10 @@
         const chunk = decoder.decode(value);
         const lines = chunk.split('\n');
         for (const line of lines) {
-          if (line.startsWith('["') || line.startsWith(',')) continue; 
+          if (!line.trim() || line.startsWith('[') || line.startsWith(',')) continue;
           try {
-            const json = JSON.parse(line.replace(/^,/, ''));
+            const cleanLine = line.replace(/^,/, '').trim();
+            const json = JSON.parse(cleanLine);
             const text = json.candidates[0].content.parts[0].text;
             if (text) {
               fullText += text;
@@ -106,9 +113,10 @@
       bubble.innerHTML = '<span style="color:#e05555">Error: ' + err.message + '</span>';
     }
     generating = false;
+    setStatus('ready');
   }
 
-  function appendUserMsg(text, images) {
+  function appendUserMsg(text) {
     const msgs = document.getElementById('messages');
     const row = document.createElement('div');
     row.className = 'msg-row user';
@@ -130,26 +138,34 @@
     body.appendChild(bubble);
     row.appendChild(body);
     msgs.appendChild(row);
-    scrollBottom();
     return bubble;
   }
 
-  function scrollBottom() {
-    const area = document.getElementById('chat-area');
-    area.scrollTop = area.scrollHeight;
+  function setStatus(s) {
+    document.getElementById('status-label').textContent = s === 'busy' ? 'Thinking' : 'Ready';
+    document.getElementById('status-dot').className = 'status-dot' + (s === 'busy' ? ' busy' : '');
   }
 
-  function renderMarkdown(text) {
-    return text.replace(/```(lua|luau)?([\s\S]*?)```/g, '<pre class="code-block"><code>$2</code></pre>')
-               .replace(/\n/g, '<br>');
+  function renderMarkdown(t) {
+    return t.replace(/```(lua|luau)?([\s\S]*?)```/g, '<pre class="code-block"><code>$2</code></pre>').replace(/\n/g, '<br>');
   }
 
-  window.openSettings = function () {
+  function scrollBottom() { const a = document.getElementById('chat-area'); a.scrollTop = a.scrollHeight; }
+
+  window.openSettings = function() {
     document.getElementById('settings-modal').style.display = 'flex';
     document.getElementById('gemini-key-input').value = getGeminiKey();
+    const s = getSession();
+    if (s) document.getElementById('settings-username').textContent = s.username;
   };
 
-  document.getElementById('user-input').addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
-  });
+  window.closeSettings = function() { document.getElementById('settings-modal').style.display = 'none'; };
+  window.closeSettingsIfBg = function(e) { if(e.target.id === 'settings-modal') closeSettings(); };
+
+  window.newChat = function() { history = []; document.getElementById('messages').innerHTML = ''; document.getElementById('welcome').style.display = 'flex'; };
+
+  window.handleKey = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } };
+  window.autoGrow = el => { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 150) + 'px'; };
+
+  if(!getSession() && !window.location.href.includes('auth')) window.location.href = '/auth';
 })();
