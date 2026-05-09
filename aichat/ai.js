@@ -2,36 +2,40 @@
   var history = [];
   var generating = false;
   var pendingImages = [];
-  var pluginConnected = false;
-  var studioToken = '';
 
-  function getSession() { return JSON.parse(localStorage.getItem('prysmis_session') || 'null'); }
-  function getGeminiKey() { return localStorage.getItem('prysmis_gemini_key') || ''; }
-  function getStoredToken() { return localStorage.getItem('prysmis_studio_token') || ''; }
-
-  window.toggleInputModelDropdown = function() {
-    document.getElementById('input-model-list').classList.toggle('open');
+  window.switchStab = function (btn, panelId) {
+    document.querySelectorAll('.stab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.spanel').forEach(p => p.classList.remove('active'));
+    document.getElementById('spanel-' + panelId).classList.add('active');
   };
 
-  window.selectInputModel = function(el) {
-    document.getElementById('input-model-label').textContent = el.textContent;
-    document.getElementById('input-model-list').classList.remove('open');
+  window.switchMainTab = function (tabId, btn) {
+    document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.tab-content').forEach(p => p.classList.remove('active'));
+    document.getElementById('tab-' + tabId).classList.add('active');
   };
 
-  window.toggleGeminiKeyVisibility = function() {
-    const inp = document.getElementById('gemini-key-input');
-    const btn = document.getElementById('gemini-key-toggle');
-    if (inp.type === 'password') { inp.type = 'text'; btn.textContent = 'Hide'; }
-    else { inp.type = 'password'; btn.textContent = 'Show'; }
+  window.openSettings = function () {
+    const modal = document.getElementById('settings-modal');
+    modal.style.display = 'flex';
+    const session = JSON.parse(localStorage.getItem('prysmis_session') || '{}');
+    document.getElementById('settings-username').textContent = session.username || 'Guest';
+    document.getElementById('gemini-key-input').value = localStorage.getItem('prysmis_gemini_key') || '';
+    document.getElementById('studio-token-display').value = localStorage.getItem('prysmis_studio_token') || 'No token generated';
   };
+
+  window.closeSettings = () => document.getElementById('settings-modal').style.display = 'none';
+  window.closeSettingsIfBg = (e) => { if (e.target.id === 'settings-modal') closeSettings(); };
 
   window.saveGeminiSettings = function() {
-    const val = document.getElementById('gemini-key-input').value.trim();
-    localStorage.setItem('prysmis_gemini_key', val);
-    const st = document.getElementById('gemini-key-status');
-    st.textContent = 'Settings saved.';
-    st.style.color = '#4caf7d';
-    setTimeout(() => { st.textContent = ''; }, 3000);
+    const key = document.getElementById('gemini-key-input').value.trim();
+    localStorage.setItem('prysmis_gemini_key', key);
+    const status = document.getElementById('gemini-key-status');
+    status.textContent = "Settings Saved!";
+    status.style.color = "#4caf7d";
+    setTimeout(() => status.textContent = "", 3000);
   };
 
   window.logout = function() {
@@ -43,51 +47,36 @@
     if (generating) return;
     const input = document.getElementById('user-input');
     const text = input.value.trim();
-    const apiKey = getGeminiKey();
+    const key = localStorage.getItem('prysmis_gemini_key');
 
-    if (!apiKey) { alert('Enter Gemini API key in Settings.'); return; }
-    if (!text && pendingImages.length === 0) return;
+    if (!key) { alert('Please enter Gemini API key in Settings.'); return; }
+    if (!text) return;
 
     document.getElementById('welcome').style.display = 'none';
-    const images = [...pendingImages];
     input.value = '';
-    pendingImages = [];
-    document.getElementById('image-preview-row').innerHTML = '';
+    appendUserMsg(text);
     
-    appendUserMsg(text, images);
-    
-    const userParts = images.map(img => ({ inline_data: { mime_type: img.type, data: img.dataUrl.split(',')[1] } }));
-    userParts.push({ text: text });
-    history.push({ role: 'user', parts: userParts });
-
-    await runAiRequest();
+    history.push({ role: 'user', parts: [{ text: text }] });
+    await runGeminiRequest(key);
   };
 
-  async function runAiRequest() {
+  async function runGeminiRequest(apiKey) {
     generating = true;
-    setStatus('busy');
     const bubble = appendAiMsg(null);
-    const apiKey = getGeminiKey();
-    
     try {
-      const contents = history.map(h => ({
-        role: h.role === 'assistant' ? 'model' : 'user',
-        parts: h.parts || [{ text: h.content }]
-      }));
-
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:streamGenerateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents,
-          system_instruction: { parts: [{ text: "You are PrysmisAI. Elite Roblox generator. Return code in blocks." }] }
+          contents: history,
+          system_instruction: { parts: [{ text: "You are PrysmisAI, an elite Roblox developer. Write code in blocks." }] }
         })
       });
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      let fullText = '';
-      bubble.innerHTML = '';
+      let fullText = "";
+      bubble.innerHTML = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -97,75 +86,58 @@
         for (const line of lines) {
           if (!line.trim() || line.startsWith('[') || line.startsWith(',')) continue;
           try {
-            const cleanLine = line.replace(/^,/, '').trim();
-            const json = JSON.parse(cleanLine);
+            const json = JSON.parse(line.replace(/^,/, '').trim());
             const text = json.candidates[0].content.parts[0].text;
             if (text) {
               fullText += text;
-              bubble.innerHTML = renderMarkdown(fullText);
-              scrollBottom();
+              bubble.innerHTML = fullText.replace(/```(lua|luau)?([\s\S]*?)```/g, '<pre class="code-block"><code>$2</code></pre>');
+              const area = document.getElementById('chat-area');
+              area.scrollTop = area.scrollHeight;
             }
           } catch(e) {}
         }
       }
-      history.push({ role: 'assistant', content: fullText });
-    } catch (err) {
-      bubble.innerHTML = '<span style="color:#e05555">Error: ' + err.message + '</span>';
-    }
+      history.push({ role: 'assistant', parts: [{ text: fullText }] });
+    } catch (e) { bubble.innerHTML = "Error: " + e.message; }
     generating = false;
-    setStatus('ready');
   }
 
-  function appendUserMsg(text) {
-    const msgs = document.getElementById('messages');
-    const row = document.createElement('div');
-    row.className = 'msg-row user';
-    row.innerHTML = `<div class="msg-body"><div class="msg-text">${text}</div></div>`;
-    msgs.appendChild(row);
-    scrollBottom();
-  }
-
-  function appendAiMsg(text) {
-    const msgs = document.getElementById('messages');
-    const row = document.createElement('div');
-    row.className = 'msg-row ai';
-    const bubble = document.createElement('div');
-    bubble.className = 'msg-text ai-msg-text';
-    bubble.innerHTML = text === null ? '<div class="thinking"><span></span><span></span><span></span></div>' : renderMarkdown(text);
-    row.innerHTML = `<div class="msg-avatar ai-avatar">P</div>`;
-    const body = document.createElement('div');
-    body.className = 'msg-body';
-    body.appendChild(bubble);
-    row.appendChild(body);
-    msgs.appendChild(row);
-    return bubble;
-  }
-
-  function setStatus(s) {
-    document.getElementById('status-label').textContent = s === 'busy' ? 'Thinking' : 'Ready';
-    document.getElementById('status-dot').className = 'status-dot' + (s === 'busy' ? ' busy' : '');
-  }
-
-  function renderMarkdown(t) {
-    return t.replace(/```(lua|luau)?([\s\S]*?)```/g, '<pre class="code-block"><code>$2</code></pre>').replace(/\n/g, '<br>');
-  }
-
-  function scrollBottom() { const a = document.getElementById('chat-area'); a.scrollTop = a.scrollHeight; }
-
-  window.openSettings = function() {
-    document.getElementById('settings-modal').style.display = 'flex';
-    document.getElementById('gemini-key-input').value = getGeminiKey();
-    const s = getSession();
-    if (s) document.getElementById('settings-username').textContent = s.username;
+  window.appendUserMsg = (t) => {
+    const m = document.getElementById('messages');
+    const d = document.createElement('div');
+    d.className = 'msg-row user';
+    d.innerHTML = `<div class="msg-body"><div class="msg-text">${t}</div></div>`;
+    m.appendChild(d);
   };
 
-  window.closeSettings = function() { document.getElementById('settings-modal').style.display = 'none'; };
-  window.closeSettingsIfBg = function(e) { if(e.target.id === 'settings-modal') closeSettings(); };
+  window.appendAiMsg = (t) => {
+    const m = document.getElementById('messages');
+    const d = document.createElement('div');
+    d.className = 'msg-row ai';
+    const b = document.createElement('div');
+    b.className = 'msg-text ai-msg-text';
+    b.innerHTML = t === null ? 'Thinking...' : t;
+    d.innerHTML = `<div class="msg-avatar ai-avatar">P</div>`;
+    const body = document.createElement('div'); body.className='msg-body'; body.appendChild(b);
+    d.appendChild(body); m.appendChild(d);
+    return b;
+  };
 
-  window.newChat = function() { history = []; document.getElementById('messages').innerHTML = ''; document.getElementById('welcome').style.display = 'flex'; };
+  window.toggleInputModelDropdown = () => document.getElementById('input-model-list').classList.toggle('open');
+  window.selectInputModel = (el) => {
+    document.getElementById('input-model-label').textContent = el.textContent;
+    document.getElementById('input-model-list').classList.remove('open');
+  };
 
-  window.handleKey = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } };
-  window.autoGrow = el => { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 150) + 'px'; };
+  window.toggleGeminiKeyVisibility = function() {
+    const inp = document.getElementById('gemini-key-input');
+    inp.type = inp.type === 'password' ? 'text' : 'password';
+  };
 
-  if(!getSession() && !window.location.href.includes('auth')) window.location.href = '/auth';
+  window.newChat = () => { history = []; document.getElementById('messages').innerHTML = ''; document.getElementById('welcome').style.display = 'flex'; };
+  window.handleKey = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } };
+  window.autoGrow = (el) => { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; };
+  
+  if (!localStorage.getItem('prysmis_session')) window.location.href = '/auth';
+
 })();
