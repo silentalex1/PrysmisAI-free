@@ -5,6 +5,37 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PrysmisAI - Chat</title>
   <link rel="stylesheet" href="ai.css">
+  <style>
+    .btn-save-settings {
+      margin-top: 15px;
+      width: fit-content;
+      padding: 12px 28px;
+      background: linear-gradient(135deg, #d4784e, #f09060);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.15s, opacity 0.2s, box-shadow 0.2s;
+      box-shadow: 0 4px 15px rgba(212, 120, 78, 0.25);
+      font-family: 'DM Sans', sans-serif;
+    }
+    .btn-save-settings:hover {
+      opacity: 0.9;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(212, 120, 78, 0.35);
+    }
+    .btn-save-settings:active {
+      transform: translateY(0);
+    }
+    .quota-warning {
+      color: #f08080;
+      font-size: 12px;
+      margin-top: 8px;
+      display: none;
+    }
+  </style>
 </head>
 <body>
 
@@ -120,7 +151,8 @@
                 <input type="password" id="gemini-key-input" placeholder="Paste Gemini Key Here" autocomplete="off">
                 <button class="setting-btn" onclick="toggleGeminiKeyVisibility()">Show</button>
               </div>
-              <button class="auth-btn" style="margin-top:15px; width:fit-content; padding: 10px 20px;" onclick="saveGeminiSettings()">Save Settings</button>
+              <button class="btn-save-settings" onclick="saveGeminiSettings()">Save Settings</button>
+              <div id="quota-warning" class="quota-warning">Quota exceeded or invalid key. Please check your Google AI Studio billing.</div>
               <div class="setting-sub" id="gemini-key-status"></div>
             </div>
           </div>
