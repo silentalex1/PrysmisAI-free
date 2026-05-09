@@ -7,33 +7,50 @@
   <link rel="stylesheet" href="ai.css">
   <style>
     .btn-save-settings {
-      margin-top: 15px;
-      width: fit-content;
-      padding: 12px 28px;
-      background: linear-gradient(135deg, #d4784e, #f09060);
-      color: white;
+      margin-top: 20px;
+      padding: 12px 32px;
+      background: linear-gradient(145deg, #d4784e, #e8834a);
+      color: #fff;
       border: none;
-      border-radius: 10px;
+      border-radius: 12px;
       font-size: 14px;
       font-weight: 600;
+      letter-spacing: 0.02em;
       cursor: pointer;
-      transition: transform 0.15s, opacity 0.2s, box-shadow 0.2s;
-      box-shadow: 0 4px 15px rgba(212, 120, 78, 0.25);
-      font-family: 'DM Sans', sans-serif;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 4px 12px rgba(212, 120, 78, 0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
     }
     .btn-save-settings:hover {
-      opacity: 0.9;
-      transform: translateY(-1px);
-      box-shadow: 0 6px 20px rgba(212, 120, 78, 0.35);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(212, 120, 78, 0.35);
+      filter: brightness(1.1);
     }
     .btn-save-settings:active {
       transform: translateY(0);
+      box-shadow: 0 2px 6px rgba(212, 120, 78, 0.2);
     }
-    .quota-warning {
+    .quota-box {
+      margin-top: 15px;
+      padding: 12px;
+      background: rgba(224, 85, 85, 0.08);
+      border: 1px solid rgba(224, 85, 85, 0.2);
+      border-radius: 10px;
+      display: none;
+    }
+    .quota-text {
       color: #f08080;
       font-size: 12px;
-      margin-top: 8px;
-      display: none;
+      line-height: 1.5;
+    }
+    .setting-sub-success {
+      color: #4caf7d;
+      font-size: 12px;
+      margin-top: 10px;
+      font-weight: 500;
     }
   </style>
 </head>
@@ -79,7 +96,7 @@
       <div id="chat-area">
         <div id="welcome" class="welcome">
           <h1 class="welcome-title">What can I help you build?</h1>
-          <p class="welcome-sub">Powered by Gemini 3 — advanced Roblox reasoning.</p>
+          <p class="welcome-sub">Powered by Gemini 3 — next-generation Roblox architecture.</p>
           <div class="quick-chips">
             <button class="chip" onclick="chipSend('I need help building a map')">Building a map</button>
             <button class="chip" onclick="chipSend('Make me a VFX of ')">Make me a VFX</button>
@@ -115,10 +132,10 @@
     </div>
 
     <div id="tab-community-projects" class="tab-content">
-        <div class="community-projects-tab"><div class="cp-tab-header"><div class="cp-tab-title">Projects</div></div></div>
+      <div class="community-projects-tab"><div class="cp-tab-header"><div class="cp-tab-title">Projects</div></div></div>
     </div>
     <div id="tab-community-chat" class="tab-content">
-        <div class="comm-messages" id="comm-messages"></div>
+      <div class="comm-messages" id="comm-messages"></div>
     </div>
   </div>
 
@@ -148,12 +165,14 @@
             <div class="setting-group">
               <label>Enter in your gemini api key:</label>
               <div class="ai-key-wrap">
-                <input type="password" id="gemini-key-input" placeholder="Paste Gemini Key Here" autocomplete="off">
+                <input type="password" id="gemini-key-input" placeholder="Paste Gemini Key" autocomplete="off">
                 <button class="setting-btn" onclick="toggleGeminiKeyVisibility()">Show</button>
               </div>
               <button class="btn-save-settings" onclick="saveGeminiSettings()">Save Settings</button>
-              <div id="quota-warning" class="quota-warning">Quota exceeded or invalid key. Please check your Google AI Studio billing.</div>
-              <div class="setting-sub" id="gemini-key-status"></div>
+              <div id="gemini-key-status" class="setting-sub-success"></div>
+              <div id="quota-box" class="quota-box">
+                <div class="quota-text">Quota or API error detected. Ensure your Gemini API Key is valid and billing/free-tier limits aren't exceeded.</div>
+              </div>
             </div>
           </div>
 
