@@ -47,7 +47,7 @@
     const input = document.getElementById('user-input');
     const text = input.value.trim();
     const key = localStorage.getItem('prysmis_gemini_key');
-    if (!key) { alert('Enter Gemini API key in Settings.'); return; }
+    if (!key) { alert('Go to Settings and add your Gemini API Key first.'); return; }
     if (!text) return;
 
     document.getElementById('welcome').style.display = 'none';
@@ -70,7 +70,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: history,
-          system_instruction: { parts: [{ text: "You are PrysmisAI, an elite Roblox developer. Write production-grade code. Return only valid Luau inside code blocks." }] }
+          systemInstruction: { parts: [{ text: "You are PrysmisAI, an elite Roblox engineer. Write high-quality Luau code. Use code blocks." }] }
         })
       });
 
@@ -82,39 +82,34 @@
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullText = "";
-      let buffer = "";
       bubble.innerHTML = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        buffer += decoder.decode(value, { stream: true });
+        const chunk = decoder.decode(value);
         
-        let start = buffer.indexOf('{');
-        let end = buffer.lastIndexOf('}');
+        const jsonParts = chunk.split(/}\s*\r?\n\s*{/);
         
-        if (start !== -1 && end !== -1 && end > start) {
-            const jsonStr = buffer.substring(start, end + 1);
-            const chunks = jsonStr.split('}\r\n{').join('},{');
-            const wrapped = `[${chunks.startsWith('{') ? chunks : '{' + chunks}]`;
-            
-            try {
-                const data = JSON.parse(wrapped);
-                for (const item of data) {
-                    const t = item.candidates?.[0]?.content?.parts?.[0]?.text;
-                    if (t) {
-                        fullText += t;
-                        bubble.innerHTML = fullText.replace(/```(lua|luau)?([\s\S]*?)```/g, '<pre class="code-block"><code>$2</code></pre>');
-                    }
-                }
-                buffer = buffer.substring(end + 1);
-            } catch(e) {}
+        for (let i = 0; i < jsonParts.length; i++) {
+          let part = jsonParts[i].trim();
+          if (!part.startsWith('{')) part = '{' + part;
+          if (!part.endsWith('}')) part = part + '}';
+          
+          try {
+            const data = JSON.parse(part.replace(/^\[/, '').replace(/\]$/, ''));
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text) {
+              fullText += text;
+              bubble.innerHTML = fullText.replace(/```(lua|luau)?([\s\S]*?)```/g, '<pre class="code-block"><code>$2</code></pre>');
+            }
+          } catch(e) {}
         }
         document.getElementById('chat-area').scrollTop = document.getElementById('chat-area').scrollHeight;
       }
       history.push({ role: "model", parts: [{ text: fullText }] });
     } catch (e) { 
-        bubble.innerHTML = "Error: " + e.message;
+        bubble.innerHTML = `<span style="color:#ff8080">Error: ${e.message}</span>`;
         quotaBox.style.display = 'block';
     }
     generating = false;
