@@ -33,6 +33,7 @@
     const key = document.getElementById('gemini-key-input').value.trim();
     localStorage.setItem('prysmis_gemini_key', key);
     const status = document.getElementById('gemini-key-status');
+    document.getElementById('quota-warning').style.display = 'none';
     status.textContent = "Settings Saved!";
     status.style.color = "#4caf7d";
     setTimeout(() => status.textContent = "", 3000);
@@ -62,16 +63,32 @@
 
   async function runGeminiRequest(apiKey) {
     generating = true;
+    setStatus('busy');
     const bubble = appendAiMsg(null);
+    const warning = document.getElementById('quota-warning');
+    
     try {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:streamGenerateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: history,
-          system_instruction: { parts: [{ text: "You are PrysmisAI, an elite Roblox developer. Write code in blocks." }] }
+          system_instruction: { parts: [{ text: "You are PrysmisAI, an elite Roblox developer. Write production-ready code blocks." }] }
         })
       });
+
+      if (response.status === 429) {
+        bubble.innerHTML = "Quota exceeded. Please wait a moment or check your API limits.";
+        warning.style.display = 'block';
+        generating = false;
+        setStatus('ready');
+        return;
+      }
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error?.message || "API Error");
+      }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -82,24 +99,37 @@
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
-        for (const line of lines) {
-          if (!line.trim() || line.startsWith('[') || line.startsWith(',')) continue;
-          try {
-            const json = JSON.parse(line.replace(/^,/, '').trim());
-            const text = json.candidates[0].content.parts[0].text;
-            if (text) {
-              fullText += text;
-              bubble.innerHTML = fullText.replace(/```(lua|luau)?([\s\S]*?)```/g, '<pre class="code-block"><code>$2</code></pre>');
-              const area = document.getElementById('chat-area');
-              area.scrollTop = area.scrollHeight;
+        const parts = chunk.split('}\n{');
+        
+        for (let i = 0; i < parts.length; i++) {
+            let p = parts[i];
+            if (parts.length > 1) {
+                if (i === 0) p = p + '}';
+                else if (i === parts.length - 1) p = '{' + p;
+                else p = '{' + p + '}';
             }
-          } catch(e) {}
+            
+            const clean = p.replace(/^\[/, '').replace(/\]$/, '').trim();
+            if (!clean || clean === ',') continue;
+
+            try {
+                const json = JSON.parse(clean);
+                const t = json.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (t) {
+                    fullText += t;
+                    bubble.innerHTML = fullText.replace(/```(lua|luau)?([\s\S]*?)```/g, '<pre class="code-block"><code>$2</code></pre>');
+                    document.getElementById('chat-area').scrollTop = document.getElementById('chat-area').scrollHeight;
+                }
+            } catch(e) {}
         }
       }
       history.push({ role: 'assistant', parts: [{ text: fullText }] });
-    } catch (e) { bubble.innerHTML = "Error: " + e.message; }
+    } catch (e) { 
+        bubble.innerHTML = "Error: " + e.message;
+        if (e.message.includes("403") || e.message.includes("key")) warning.style.display = 'block';
+    }
     generating = false;
+    setStatus('ready');
   }
 
   window.appendUserMsg = (t) => {
@@ -123,6 +153,13 @@
     return b;
   };
 
+  window.setStatus = (s) => {
+    const dot = document.getElementById('status-dot');
+    const lbl = document.getElementById('status-label');
+    if (s === 'busy') { dot.classList.add('busy'); lbl.textContent = 'Thinking'; }
+    else { dot.classList.remove('busy'); lbl.textContent = 'Ready'; }
+  };
+
   window.toggleInputModelDropdown = () => document.getElementById('input-model-list').classList.toggle('open');
   window.selectInputModel = (el) => {
     document.getElementById('input-model-label').textContent = el.textContent;
@@ -139,5 +176,4 @@
   window.autoGrow = (el) => { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; };
   
   if (!localStorage.getItem('prysmis_session')) window.location.href = '/auth';
-
 })();
