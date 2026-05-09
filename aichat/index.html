@@ -31,7 +31,6 @@
     }
     .btn-save-settings:active {
       transform: translateY(0);
-      box-shadow: 0 2px 6px rgba(212, 120, 78, 0.2);
     }
     .quota-box {
       margin-top: 15px;
@@ -96,7 +95,7 @@
       <div id="chat-area">
         <div id="welcome" class="welcome">
           <h1 class="welcome-title">What can I help you build?</h1>
-          <p class="welcome-sub">Powered by Gemini 3 — next-generation Roblox architecture.</p>
+          <p class="welcome-sub">Powered by Gemini 3 — professional Roblox generation.</p>
           <div class="quick-chips">
             <button class="chip" onclick="chipSend('I need help building a map')">Building a map</button>
             <button class="chip" onclick="chipSend('Make me a VFX of ')">Make me a VFX</button>
@@ -135,7 +134,7 @@
       <div class="community-projects-tab"><div class="cp-tab-header"><div class="cp-tab-title">Projects</div></div></div>
     </div>
     <div id="tab-community-chat" class="tab-content">
-      <div class="comm-messages" id="comm-messages"></div>
+      <div id="comm-messages" class="comm-messages"></div>
     </div>
   </div>
 
@@ -171,7 +170,7 @@
               <button class="btn-save-settings" onclick="saveGeminiSettings()">Save Settings</button>
               <div id="gemini-key-status" class="setting-sub-success"></div>
               <div id="quota-box" class="quota-box">
-                <div class="quota-text">Quota or API error detected. Ensure your Gemini API Key is valid and billing/free-tier limits aren't exceeded.</div>
+                <div class="quota-text">Quota or API error detected. Ensure your Gemini API Key is valid and billing limits aren't exceeded.</div>
               </div>
             </div>
           </div>
@@ -189,8 +188,6 @@
     </div>
   </div>
 </div>
-
-<div id="studio-panel" class="studio-panel closed"></div>
 
 <script src="ai.js"></script>
 </body>
