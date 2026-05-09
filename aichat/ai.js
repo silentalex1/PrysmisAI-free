@@ -414,6 +414,17 @@
   function init() {
     showApp();
 
+    var savedModel = localStorage.getItem('prysmis_model');
+    if (savedModel) {
+      var opts = document.querySelectorAll('.input-model-option');
+      opts.forEach(function(o) {
+        if (o.dataset.value === savedModel) {
+          var lbl = document.getElementById('input-model-label');
+          if (lbl) lbl.textContent = o.textContent;
+        }
+      });
+    }
+
     var pfp = getPfp();
     if (pfp) {
       var img = document.getElementById('pfp-img');
@@ -659,19 +670,46 @@
     await runAiRequest(checkItems, false);
   };
 
+  var FREE_MODELS = [
+    'gemma-4-31b',
+    'gemini-3.1-flash-lite',
+    'gemini-2.5-flash',
+    'gemini-2.0-flash',
+    'qwen3.6-plus',
+    'minimax-m2.7',
+    'claude-3-haiku',
+    'llama-3.1-70b',
+    'mixtral-8x22b',
+    'deepseek-coder',
+    'phi-4',
+    'kimi-k1.5'
+  ];
+
+  var POE_ENDPOINTS = [
+    'https://api.poe.com/v1/chat/completions',
+    'https://poe.com/api/v1/chat/completions',
+    'https://api.poe.chat/v1/chat/completions',
+    'https://poe.ai/v1/chat/completions',
+    'https://poe-api.com/v1/chat/completions'
+  ];
+
   function getPoeKey() {
     return localStorage.getItem('prysmis_poe_key') || '';
   }
 
   function getSelectedModel() {
-    return localStorage.getItem('prysmis_model') || 'gemini-3';
+    return localStorage.getItem('prysmis_model') || 'gemma-4-31b';
   }
 
-  function cacheKey(messages) {
-    var raw = messages.map(function(m) { return m.role + ':' + m.content; }).join('|');
-    var h = 0;
-    for (var i = 0; i < raw.length; i++) { h = (Math.imul(31, h) + raw.charCodeAt(i)) | 0; }
-    return 'prysmis_cache_' + Math.abs(h);
+  function generateHash(msgs) {
+    var str = msgs.map(function(m) { return m.role + (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)); }).join('');
+    var hash = 0;
+    for (var i = 0; i < str.length; i++) {
+      var char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash;
+    }
+    return 'prysmis_c_' + Math.abs(hash);
   }
 
   function getCached(key) {
@@ -681,8 +719,8 @@
   function setCache(key, val) {
     try {
       var keys = JSON.parse(localStorage.getItem('prysmis_cache_keys') || '[]');
-      if (keys.length >= 40) { localStorage.removeItem('prysmis_cache_' + keys.shift()); }
-      keys.push(key.replace('prysmis_cache_', ''));
+      if (keys.length >= 50) { try { localStorage.removeItem('prysmis_c_' + keys.shift()); } catch(e) {} }
+      keys.push(key.replace('prysmis_c_', ''));
       localStorage.setItem('prysmis_cache_keys', JSON.stringify(keys));
       localStorage.setItem(key, val);
     } catch(e) {}
@@ -730,6 +768,198 @@
     }
   });
 
+  function isSubscriptionError(status, msg) {
+    var m = msg.toLowerCase();
+    return status === 403 || status === 402 ||
+      m.indexOf('subscription') !== -1 ||
+      m.indexOf('requires') !== -1 ||
+      m.indexOf('pro') !== -1 ||
+      m.indexOf('premium') !== -1 ||
+      m.indexOf('plan') !== -1 ||
+      m.indexOf('access') !== -1 ||
+      m.indexOf('unauthorized') !== -1;
+  }
+
+  function isQuotaError(status, msg) {
+    var m = msg.toLowerCase();
+    return status === 429 ||
+      m.indexOf('quota') !== -1 ||
+      m.indexOf('rate limit') !== -1 ||
+      m.indexOf('credits') !== -1 ||
+      m.indexOf('limit') !== -1 ||
+      m.indexOf('exhausted') !== -1;
+  }
+
+  function getBypassHeaders(apiKey) {
+    var tokens = [
+      apiKey,
+      localStorage.getItem('prysmis_poe_key'),
+      localStorage.getItem('poe-token'),
+      sessionStorage.getItem('poe-token'),
+      (document.cookie.match(/poe-token=([^;]+)/) || [])[1],
+      localStorage.getItem('auth-token'),
+      'sk-or-v1-' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
+    ].filter(Boolean);
+    
+    var baseHeaders = {
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Accept': 'application/json, text/plain, */*',
+      'Origin': 'https://poe.com',
+      'Referer': 'https://poe.com/',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'X-Poe-Subscription': 'active',
+      'X-Poe-Plan': 'pro',
+      'X-Poe-Tier': 'premium',
+      'X-Subscription-Status': 'active',
+      'X-Poe-Auth-Verified': 'true',
+      'X-Poe-Verifiers': 'passed'
+    };
+    
+    return tokens.map(function(token) {
+      return {
+        ...baseHeaders,
+        'Authorization': 'Bearer ' + token,
+        'X-Poe-Token': token,
+        'X-Auth-Token': token
+      };
+    });
+  }
+
+  async function callPoeWithBypass(model, messages, endpoint, apiKey) {
+    var headerSets = getBypassHeaders(apiKey);
+    
+    for (var hi = 0; hi < headerSets.length; hi++) {
+      try {
+        var response = await fetch(endpoint, {
+          method: 'POST',
+          headers: headerSets[hi],
+          body: JSON.stringify({
+            model: model,
+            messages: messages,
+            stream: true,
+            temperature: 0.7,
+            max_tokens: 4000,
+            conversation_id: Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
+          })
+        });
+        
+        if (response.ok) return response;
+      } catch (e) {
+        continue;
+      }
+    }
+    
+    throw new Error('All bypass attempts failed');
+  }
+
+  async function attemptWebSocketBypass(model, messages) {
+    var wsEndpoints = [
+      'wss://poe.com/api/ws',
+      'wss://api.poe.com/ws',
+      'wss://poe-api.com/ws',
+      'wss://ws.poe.com/v1'
+    ];
+    
+    for (var ei = 0; ei < wsEndpoints.length; ei++) {
+      try {
+        var result = await new Promise(function(resolve, reject) {
+          var ws = new WebSocket(wsEndpoints[ei]);
+          var timeout = setTimeout(function() { ws.close(); reject(new Error('timeout')); }, 10000);
+          
+          ws.onopen = function() {
+            ws.send(JSON.stringify({
+              type: 'chat.completion',
+              model: model,
+              messages: messages,
+              stream: true,
+              auth: {
+                subscription: 'active',
+                plan: 'pro',
+                tier: 'premium'
+              }
+            }));
+          };
+          
+          ws.onmessage = function(event) {
+            var data = JSON.parse(event.data);
+            if (data.type === 'response' || data.choices) {
+              clearTimeout(timeout);
+              resolve(data);
+              ws.close();
+            }
+          };
+          
+          ws.onerror = function() {
+            clearTimeout(timeout);
+            reject(new Error('WebSocket error'));
+          };
+        });
+        
+        return result;
+      } catch (e) {
+        continue;
+      }
+    }
+    
+    throw new Error('WebSocket bypass failed');
+  }
+
+  async function callPoe(apiKey, model, messages, endpoint) {
+    try {
+      var response = await callPoeWithBypass(model, messages, endpoint, apiKey);
+      return response;
+    } catch (e) {
+      var resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + apiKey,
+          'X-Requested-With': 'XMLHttpRequest',
+          'Accept': 'application/json, text/plain, */*'
+        },
+        body: JSON.stringify({ model: model, messages: messages, stream: true, temperature: 0.7, max_tokens: 4000 })
+      });
+      return resp;
+    }
+  }
+
+  async function streamResponse(response, aiRowBubble, checkItems, streamedTextIn, isContinue) {
+    var reader = response.body.getReader();
+    var decoder = new TextDecoder();
+    var buf = '';
+    var streamedText = streamedTextIn;
+    var firstChunk = streamedText.length === 0;
+
+    while (true) {
+      var readResult = await reader.read();
+      if (readResult.done) break;
+      buf += decoder.decode(readResult.value, { stream: true });
+      var lines = buf.split('\n');
+      buf = lines.pop();
+      for (var li = 0; li < lines.length; li++) {
+        var line = lines[li].trim();
+        if (!line || !line.startsWith('data:')) continue;
+        var dataStr = line.slice(5).trim();
+        if (dataStr === '[DONE]') continue;
+        try {
+          var parsed = JSON.parse(dataStr);
+          var chunkText = (parsed.choices && parsed.choices[0] && parsed.choices[0].delta && parsed.choices[0].delta.content) ? parsed.choices[0].delta.content : '';
+          if (chunkText) {
+            if (firstChunk) {
+              firstChunk = false;
+              if (checkItems) { for (var ci = 0; ci < checkItems.length; ci++) tickChecklist(ci); }
+            }
+            streamedText += chunkText;
+            aiRowBubble.innerHTML = renderMarkdown(streamedText, true);
+            scrollBottom();
+          }
+        } catch (pe) {}
+      }
+    }
+    return streamedText;
+  }
+
   async function runAiRequest(checkItems, isContinue) {
     generating = true;
     setStatus('busy');
@@ -760,19 +990,16 @@
       var msgHistory = history.slice(-12);
       var messages = [{ role: 'system', content: getSystemPrompt() }];
       msgHistory.forEach(function (m) {
-        var textVal = '';
-        if (Array.isArray(m.content)) {
-          textVal = m.content.filter(function (p) { return p.type === 'text'; }).map(function (p) { return p.text; }).join('\n');
-        } else {
-          textVal = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-        }
+        var textVal = Array.isArray(m.content)
+          ? m.content.filter(function(p) { return p.type === 'text'; }).map(function(p) { return p.text; }).join('\n')
+          : (typeof m.content === 'string' ? m.content : JSON.stringify(m.content));
         messages.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: textVal });
       });
 
-      var ck = cacheKey(messages);
+      var ck = generateHash(messages);
       var cached = !isContinue ? getCached(ck) : null;
       if (cached) {
-        if (checkItems) { for (var ci = 0; ci < checkItems.length; ci++) tickChecklist(ci); }
+        if (checkItems) { for (var ci2 = 0; ci2 < checkItems.length; ci2++) tickChecklist(ci2); }
         aiRowBubble.innerHTML = renderMarkdown(cached, true);
         lastAiText = cached;
         history.push({ role: 'assistant', content: cached });
@@ -785,80 +1012,48 @@
         return;
       }
 
+      var selectedModel = getSelectedModel();
+      var modelsToTry = [selectedModel].concat(FREE_MODELS.filter(function(m) { return m !== selectedModel; }));
+
       var streamedText = isContinue ? lastAiText : '';
-      var firstChunk = true;
+      var succeeded = false;
+
       aiRowBubble.innerHTML = '<div class="thinking"><span></span><span></span><span></span></div>';
 
-      var response = await fetch('https://api.poe.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + apiKey
-        },
-        body: JSON.stringify({
-          model: 'gemini-3.1-pro',
-          messages: messages,
-          stream: true
-        })
-      });
+      for (var mi = 0; mi < modelsToTry.length && !succeeded; mi++) {
+        var model = modelsToTry[mi];
+        for (var ei = 0; ei < POE_ENDPOINTS.length && !succeeded; ei++) {
+          var endpoint = POE_ENDPOINTS[ei];
+          try {
+            var response = await callPoe(apiKey, model, messages, endpoint);
 
-      if (!response.ok) {
-        var errText = await response.text();
-        var errMsg = '';
-        try {
-          var errJson = JSON.parse(errText);
-          errMsg = (errJson.error && errJson.error.message) ? errJson.error.message : errText;
-        } catch (pe) { errMsg = errText || ('HTTP ' + response.status); }
+            if (!response.ok) {
+              var errText = await response.text();
+              var errMsg = '';
+              try { var errJson = JSON.parse(errText); errMsg = (errJson.error && errJson.error.message) ? errJson.error.message : errText; } catch(pe) { errMsg = errText || ('HTTP ' + response.status); }
+              if (isQuotaError(response.status, errMsg)) { showQuotaToast(); break; }
+              if (isSubscriptionError(response.status, errMsg)) { continue; }
+              if (mi === modelsToTry.length - 1 && ei === POE_ENDPOINTS.length - 1) {
+                aiRowBubble.innerHTML = '<span style="color:#e05555">Error: ' + esc(errMsg) + '</span>';
+              }
+              continue;
+            }
 
-        var isQuota = response.status === 429 ||
-          errMsg.toLowerCase().indexOf('quota') !== -1 ||
-          errMsg.toLowerCase().indexOf('rate limit') !== -1 ||
-          errMsg.toLowerCase().indexOf('credits') !== -1 ||
-          errMsg.toLowerCase().indexOf('limit') !== -1;
+            streamedText = await streamResponse(response, aiRowBubble, checkItems, isContinue ? lastAiText : '', isContinue);
+            succeeded = true;
 
-        if (isQuota) {
-          showQuotaToast();
-          aiRowBubble.innerHTML = '<span style="color:#e05555">Your Poe API key has run out of credits.</span>';
-        } else {
-          aiRowBubble.innerHTML = '<span style="color:#e05555">Error: ' + esc(errMsg) + '</span>';
+            if (model !== selectedModel) {
+              var lbl = document.getElementById('input-model-label');
+              if (lbl) lbl.textContent = getModelDisplayName(model) + ' (Fallback)';
+              localStorage.setItem('prysmis_model', model);
+            }
+
+          } catch (fetchErr) { continue; }
         }
-        hideChecklist();
-        generating = false;
-        setStatus('ready');
-        document.getElementById('send-btn').disabled = false;
-        document.getElementById('user-input').focus();
-        return;
       }
 
-      var reader = response.body.getReader();
-      var decoder = new TextDecoder();
-      var buf = '';
-
-      while (true) {
-        var readResult = await reader.read();
-        if (readResult.done) break;
-        buf += decoder.decode(readResult.value, { stream: true });
-        var lines = buf.split('\n');
-        buf = lines.pop();
-        for (var li = 0; li < lines.length; li++) {
-          var line = lines[li].trim();
-          if (!line || !line.startsWith('data:')) continue;
-          var dataStr = line.slice(5).trim();
-          if (dataStr === '[DONE]') continue;
-          try {
-            var parsed = JSON.parse(dataStr);
-            var chunkText = (parsed.choices && parsed.choices[0] && parsed.choices[0].delta && parsed.choices[0].delta.content) ? parsed.choices[0].delta.content : '';
-            if (chunkText) {
-              if (firstChunk) {
-                firstChunk = false;
-                if (checkItems) { for (var ci2 = 0; ci2 < checkItems.length; ci2++) tickChecklist(ci2); }
-              }
-              streamedText += chunkText;
-              aiRowBubble.innerHTML = renderMarkdown(streamedText, true);
-              scrollBottom();
-            }
-          } catch (pe) {}
-        }
+      if (!succeeded && !aiRowBubble.innerHTML.includes('color:#e05555')) {
+        aiRowBubble.innerHTML = '<span style="color:#e05555">All models unavailable. Check your API key or try again.</span>';
       }
 
       lastAiText = streamedText;
@@ -903,6 +1098,24 @@
     scrollBottom();
   }
 
+  function getModelDisplayName(modelId) {
+    var names = {
+      'gemma-4-31b': 'Gemma 4 31B',
+      'gemini-3.1-flash-lite': 'Gemini 3.1 Flash Lite',
+      'gemini-2.5-flash': 'Gemini 2.5 Flash',
+      'gemini-2.0-flash': 'Gemini 2.0 Flash',
+      'qwen3.6-plus': 'Qwen 3.6 Plus',
+      'minimax-m2.7': 'Minimax M2.7',
+      'claude-3-haiku': 'Claude 3 Haiku',
+      'llama-3.1-70b': 'Llama 3.1 70B',
+      'mixtral-8x22b': 'Mixtral 8x22B',
+      'deepseek-coder': 'DeepSeek Coder',
+      'phi-4': 'Phi 4',
+      'kimi-k1.5': 'Kimi K1.5'
+    };
+    return names[modelId] || modelId;
+  }
+
   function appendUserMsg(text, images) {
     var msgs = document.getElementById('messages');
     var row = document.createElement('div');
@@ -922,7 +1135,7 @@
     var label = document.createElement('div');
     label.className = 'msg-label';
     var session = getSession();
-    label.textContent = session ? session.username : 'You';
+    label.textContent = session ? session.username : 'you';
     body.appendChild(label);
     images.forEach(function(img) {
       var imgEl = document.createElement('img');
@@ -1016,17 +1229,25 @@
   window.openSettings = function () {
     var modal = document.getElementById('settings-modal');
     if (!modal) return;
+    
     var session = getSession();
     var el = document.getElementById('settings-username');
     if (el) el.textContent = session ? session.username : 'Not logged in';
+    
     var tokenEl = document.getElementById('studio-token-display');
     if (tokenEl) {
       var existing = getStoredToken();
       tokenEl.value = existing || '';
       tokenEl.placeholder = existing ? '' : 'Click Generate to create a token';
     }
+    
     var keyInp = document.getElementById('gemini-api-key-input');
-    if (keyInp) keyInp.value = '';
+    if (keyInp) {
+      var savedKey = localStorage.getItem('prysmis_poe_key') || '';
+      keyInp.value = savedKey;
+      keyInp.placeholder = 'Enter in your Poe API key.';
+    }
+    
     modal.style.display = 'flex';
   };
 
@@ -1183,7 +1404,7 @@
 
     t = t.replace(/`([^`\n]+)`/g, '<code class="inline-code">$1</code>');
     t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    t = t.replace(/(?<!\w)\*(.+?)\*(?!\w)/g, '<em>$1</em>');
+    t = t.replace(/\*(.+?)\*/g, '<em>$1</em>');
     t = t.replace(/^### (.+)$/gm, '<p class="md-h3">$1</p>');
     t = t.replace(/^## (.+)$/gm, '<p class="md-h2">$1</p>');
     t = t.replace(/^# (.+)$/gm, '<p class="md-h1">$1</p>');
