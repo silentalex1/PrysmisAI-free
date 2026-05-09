@@ -1,7 +1,6 @@
 (function () {
   var history = [];
   var generating = false;
-  var pendingImages = [];
 
   window.switchStab = function (btn, panelId) {
     document.querySelectorAll('.stab').forEach(b => b.classList.remove('active'));
@@ -23,7 +22,7 @@
     const session = JSON.parse(localStorage.getItem('prysmis_session') || '{}');
     document.getElementById('settings-username').textContent = session.username || 'Guest';
     document.getElementById('gemini-key-input').value = localStorage.getItem('prysmis_gemini_key') || '';
-    document.getElementById('studio-token-display').value = localStorage.getItem('prysmis_studio_token') || 'No token generated';
+    document.getElementById('studio-token-display').value = localStorage.getItem('prysmis_studio_token') || '';
   };
 
   window.closeSettings = () => document.getElementById('settings-modal').style.display = 'none';
@@ -48,15 +47,14 @@
     const input = document.getElementById('user-input');
     const text = input.value.trim();
     const key = localStorage.getItem('prysmis_gemini_key');
-
-    if (!key) { alert('Please enter Gemini API key in Settings.'); return; }
+    if (!key) { alert('Enter Gemini API key in Settings.'); return; }
     if (!text) return;
 
     document.getElementById('welcome').style.display = 'none';
     input.value = '';
     appendUserMsg(text);
     
-    history.push({ role: 'user', parts: [{ text: text }] });
+    history.push({ role: "user", parts: [{ text: text }] });
     await runGeminiRequest(key);
   };
 
@@ -72,7 +70,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: history,
-          system_instruction: { parts: [{ text: "You are PrysmisAI, an elite Roblox developer. Write production-ready code blocks. Use Luau." }] }
+          system_instruction: { parts: [{ text: "You are PrysmisAI, an elite Roblox developer. Write production-grade code. Return only valid Luau inside code blocks." }] }
         })
       });
 
@@ -84,44 +82,40 @@
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullText = "";
+      let buffer = "";
       bubble.innerHTML = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value);
+        buffer += decoder.decode(value, { stream: true });
         
-        const jsonChunks = chunk.split('}\r\n{').map((part, i, arr) => {
-            let p = part.trim();
-            if (arr.length > 1) {
-                if (i === 0) p = p + '}';
-                else if (i === arr.length - 1) p = '{' + p;
-                else p = '{' + p + '}';
-            }
-            return p;
-        });
-
-        for (const raw of jsonChunks) {
-            const clean = raw.replace(/^\[/, '').replace(/\]$/, '').trim();
-            if (!clean || clean === ',') continue;
+        let start = buffer.indexOf('{');
+        let end = buffer.lastIndexOf('}');
+        
+        if (start !== -1 && end !== -1 && end > start) {
+            const jsonStr = buffer.substring(start, end + 1);
+            const chunks = jsonStr.split('}\r\n{').join('},{');
+            const wrapped = `[${chunks.startsWith('{') ? chunks : '{' + chunks}]`;
+            
             try {
-                const json = JSON.parse(clean);
-                const t = json.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (t) {
-                    fullText += t;
-                    bubble.innerHTML = fullText.replace(/```(lua|luau)?([\s\S]*?)```/g, '<pre class="code-block"><code>$2</code></pre>');
-                    document.getElementById('chat-area').scrollTop = document.getElementById('chat-area').scrollHeight;
+                const data = JSON.parse(wrapped);
+                for (const item of data) {
+                    const t = item.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (t) {
+                        fullText += t;
+                        bubble.innerHTML = fullText.replace(/```(lua|luau)?([\s\S]*?)```/g, '<pre class="code-block"><code>$2</code></pre>');
+                    }
                 }
+                buffer = buffer.substring(end + 1);
             } catch(e) {}
         }
+        document.getElementById('chat-area').scrollTop = document.getElementById('chat-area').scrollHeight;
       }
-      history.push({ role: 'assistant', parts: [{ text: fullText }] });
-      quotaBox.style.display = 'none';
+      history.push({ role: "model", parts: [{ text: fullText }] });
     } catch (e) { 
         bubble.innerHTML = "Error: " + e.message;
-        if (e.message.includes("429") || e.message.includes("403") || e.message.includes("404")) {
-            quotaBox.style.display = 'block';
-        }
+        quotaBox.style.display = 'block';
     }
     generating = false;
     setStatus('ready');
@@ -169,6 +163,5 @@
   window.newChat = () => { history = []; document.getElementById('messages').innerHTML = ''; document.getElementById('welcome').style.display = 'flex'; };
   window.handleKey = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } };
   window.autoGrow = (el) => { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; };
-  
   if (!localStorage.getItem('prysmis_session')) window.location.href = '/auth';
 })();
